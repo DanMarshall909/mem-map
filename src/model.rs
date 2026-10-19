@@ -218,8 +218,15 @@ pub struct Comparison {
     pub members: Vec<ComparisonMember>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AreaPoint {
+    pub at: u32,
+    pub lower: u64,
+    pub upper: u64,
+}
+
 pub struct ComparisonSeries {
-    pub segments: Vec<Vec<(u32, u64)>>,
+    pub segments: Vec<Vec<AreaPoint>>,
     pub current: Option<u64>,
 }
 
@@ -232,24 +239,36 @@ pub struct ComparisonPlot {
 
 impl Comparison {
     pub fn plot(&self, history: &History, commit: bool, seconds: u32) -> ComparisonPlot {
+        // Each graph uses the same observation times. Unknown lower values
+        // propagate upward: an upper band cannot invent a zero baseline.
+        let mut baselines: Vec<Option<u64>> = Vec::new();
         let series: Vec<_> = self
             .members
             .iter()
             .map(|member| {
                 let points = history.graph(&member.selection, commit, seconds);
                 let current = points.last().and_then(|(_, value)| *value);
-                let mut segments: Vec<Vec<(u32, u64)>> = Vec::new();
+                if baselines.is_empty() {
+                    baselines.resize(points.len(), Some(0));
+                }
+                let mut segments: Vec<Vec<AreaPoint>> = Vec::new();
                 let mut previous = None;
                 let mut new_segment = true;
-                for (at, value) in points {
+                for ((at, value), baseline) in points.into_iter().zip(&mut baselines) {
+                    let point = (*baseline).zip(value).map(|(lower, value)| AreaPoint {
+                        at,
+                        lower,
+                        upper: lower.saturating_add(value),
+                    });
+                    *baseline = point.map(|point| point.upper);
                     if previous.is_some_and(|last| at.saturating_sub(last) > 3) {
                         new_segment = true;
                     }
-                    if let Some(value) = value {
+                    if let Some(point) = point {
                         if new_segment {
                             segments.push(Vec::new());
                         }
-                        segments.last_mut().unwrap().push((at, value));
+                        segments.last_mut().unwrap().push(point);
                         new_segment = false;
                     } else {
                         new_segment = true;
@@ -263,7 +282,7 @@ impl Comparison {
             .iter()
             .flat_map(|s| &s.segments)
             .flatten()
-            .map(|(_, value)| *value)
+            .map(|point| point.upper)
             .max()
             .unwrap_or(0);
         ComparisonPlot {
@@ -754,7 +773,7 @@ mod tests {
         );
     }
     #[test]
-    fn comparison_uses_one_scale_and_time_window_with_gaps_and_no_false_zeroes() {
+    fn comparison_stacks_values_with_one_scale_and_breaks_unknown_baselines_and_time_gaps() {
         let mut h = History::default();
         h.observe(frame(
             0,
@@ -768,37 +787,48 @@ mod tests {
         ));
         h.observe(frame(10, vec![sample(1, 1, 300 * 1024)]));
         h.observe(frame(12, vec![sample(2, 2, 90 * 1024)]));
+        let missing_lower = comparison.plot(&h, false, 300);
+        assert_eq!(missing_lower.series[1].current, Some(90 * 1024 * 1024));
+        assert!(
+            missing_lower.series[1]
+                .segments
+                .iter()
+                .flatten()
+                .all(|point| point.at != 12)
+        );
         h.observe(frame(
             14,
             vec![sample(1, 1, 400 * 1024), sample(2, 2, 100 * 1024)],
         ));
         let mib = 1024 * 1024;
+        let area = |at, lower, upper| AreaPoint {
+            at,
+            lower: lower * mib,
+            upper: upper * mib,
+        };
         let plot = comparison.plot(&h, false, 300);
-        assert_eq!((plot.start, plot.end, plot.maximum), (0, 14, 440 * mib));
+        assert_eq!((plot.start, plot.end, plot.maximum), (0, 14, 550 * mib));
         assert_eq!(plot.series.len(), 2);
         assert_eq!(
             plot.series[0].segments,
             vec![
-                vec![(0, 100 * mib), (2, 200 * mib)],
-                vec![(10, 300 * mib)],
-                vec![(14, 400 * mib)]
+                vec![area(0, 0, 100), area(2, 0, 200)],
+                vec![area(10, 0, 300)],
+                vec![area(14, 0, 400)]
             ]
         );
         assert_eq!(
             plot.series[1].segments,
             vec![
-                vec![(0, 50 * mib), (2, 80 * mib)],
-                vec![(12, 90 * mib), (14, 100 * mib)]
+                vec![area(0, 100, 150), area(2, 200, 280)],
+                vec![area(14, 400, 500)]
             ]
         );
         assert_eq!(plot.series[0].current, Some(400 * mib));
         let zoom = comparison.plot(&h, true, 3);
-        assert_eq!((zoom.start, zoom.end, zoom.maximum), (11, 14, 880 * mib));
-        assert_eq!(zoom.series[0].segments, vec![vec![(14, 800 * mib)]]);
-        assert_eq!(
-            zoom.series[1].segments,
-            vec![vec![(12, 180 * mib), (14, 200 * mib)]]
-        );
+        assert_eq!((zoom.start, zoom.end, zoom.maximum), (11, 14, 1100 * mib));
+        assert_eq!(zoom.series[0].segments, vec![vec![area(14, 0, 800)]]);
+        assert_eq!(zoom.series[1].segments, vec![vec![area(14, 800, 1000)]]);
         h.observe(frame(16, vec![]));
         assert!(
             comparison
@@ -807,6 +837,41 @@ mod tests {
                 .iter()
                 .all(|s| s.current.is_none())
         );
+        h.observe(frame(
+            20,
+            vec![
+                sample(1, 1, 450 * 1024),
+                sample(2, 2, 110 * 1024),
+                sample(3, 3, 50 * 1024),
+            ],
+        ));
+        comparison.refresh(&h, Grouping::Process, false);
+        let three = comparison.plot(&h, false, 3);
+        assert_eq!(three.series[2].segments, vec![vec![area(20, 560, 610)]]);
+        assert_eq!(three.series[2].current, Some(50 * mib));
+        h.observe(frame(
+            22,
+            vec![
+                sample(1, 1, 200 * 1024),
+                sample(2, 2, 500 * 1024),
+                sample(3, 3, 25 * 1024),
+            ],
+        ));
+        let concurrent = comparison.plot(&h, false, 3);
+        assert_eq!(concurrent.maximum, 725 * mib + 725 * mib / 10);
+        assert_eq!(
+            concurrent.series[2].segments,
+            vec![vec![area(20, 560, 610), area(22, 700, 725)]]
+        );
+        h.observe(frame(
+            24,
+            vec![sample(1, 1, 0), sample(2, 2, 0), sample(3, 3, 0)],
+        ));
+        let zero = comparison.plot(&h, false, 1);
+        assert_eq!(zero.maximum, 10 * mib);
+        assert!(zero.series.iter().all(
+            |series| series.segments == vec![vec![area(24, 0, 0)]] && series.current == Some(0)
+        ));
         let empty = Comparison::default().plot(&History::default(), false, 300);
         assert!(empty.series.is_empty());
         assert!(empty.end > empty.start && empty.maximum > 0);

@@ -1038,9 +1038,15 @@ impl App {
             ReleaseDC(null_mut(), dc);
         }
         let full_render_ms = render_started.elapsed().as_millis();
+        let full_image = if let Some(dir) = &self.smoke {
+            unsafe { self.screenshot(&dir.join("stacked-full-history.bmp")) }
+        } else {
+            Ok(())
+        };
         std::mem::swap(&mut self.history, &mut full);
         self.refresh_rows();
         std::hint::black_box(&full);
+        full_image?;
         if gdi_before == 0 || gdi_after != gdi_before {
             return Err(io::Error::other(format!(
                 "GDI resources changed during 100 redraws: {gdi_before} -> {gdi_after}"
@@ -1096,11 +1102,6 @@ impl App {
         };
         for i in 0..=2 {
             let y = chart.top + (chart.bottom - chart.top) * i / 2;
-            c.line(
-                &[POINT { x: chart.left, y }, POINT { x: chart.right, y }],
-                BORDER,
-                1,
-            );
             c.text(
                 rx + 2,
                 y - 8,
@@ -1114,10 +1115,25 @@ impl App {
         }
         for (index, series) in plot.series.iter().enumerate() {
             for segment in &series.segments {
-                let points: Vec<_> = segment.iter().map(|(at, value)| xy(*at, *value)).collect();
-                c.line(&points, COLORS[index], 2);
-                if let Some(last) = points.last() {
-                    c.circle(last.x, last.y, 2, COLORS[index]);
+                let upper: Vec<_> = segment
+                    .iter()
+                    .map(|point| xy(point.at, point.upper))
+                    .collect();
+                if segment.len() == 1 {
+                    let point = segment[0];
+                    c.line(
+                        &[xy(point.at, point.lower), xy(point.at, point.upper)],
+                        COLORS[index],
+                        2,
+                    );
+                } else {
+                    let polygon: Vec<_> = upper
+                        .iter()
+                        .copied()
+                        .chain(segment.iter().rev().map(|point| xy(point.at, point.lower)))
+                        .collect();
+                    c.polygon(&polygon, COLORS[index]);
+                    c.line(&upper, COLORS[index], 1);
                 }
             }
             let member = &self.comparison.members[index];
@@ -1145,6 +1161,15 @@ impl App {
             );
             self.hits
                 .push((rect(rx + 10, y, rw - 20, 14), Action::Compare(index)));
+        }
+        // Keep the shared scale readable over opaque filled bands.
+        for i in 0..=2 {
+            let y = chart.top + (chart.bottom - chart.top) * i / 2;
+            c.line(
+                &[POINT { x: chart.left, y }, POINT { x: chart.right, y }],
+                BORDER,
+                1,
+            );
         }
         c.text(
             chart.left,
@@ -1184,7 +1209,7 @@ impl App {
             rw - 24,
             14,
             &format!(
-                "Pinned · Refresh · {} window",
+                "Stacked · Pinned · {} window",
                 window_label(Some(self.range))
             ),
             c.fonts.small,

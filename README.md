@@ -6,6 +6,14 @@ building, or launch `target\release\mem-map.exe`. No installer or background ser
 - A dense table occupies most of the window. The narrow sidebar holds the pie,
   selected process details and history. Click an app slice or legend to inspect
   its processes; double-click a group or use Expand to do the same.
+- **Top 5** overlays the five largest active groups on one time and memory scale.
+  Click a legend to inspect its members. Switch to **Pie** for the physical-memory
+  breakdown. The selected-process history remains available below either view.
+  Top 5 follows Name/Path/Family/PID grouping and the RAM/Commit metric, independently
+  of table search and growth sorting. Colours and identities stay pinned across
+  samples and exits until **Refresh**, grouping or metric changes. Missing data
+  and pauses leave gaps; **Unavailable** does not mean zero. Both charts share the
+  5/15/30-minute zoom. Comparison history reuses the existing bounded capture.
 - Physical-memory pie: the largest apps, other apps, system/shared/unmeasured RAM,
   and available RAM. Shared mappings are not added repeatedly across processes.
 - **Name** combines same-name processes across install paths, giving all `node.exe`
@@ -71,6 +79,8 @@ Sampling is not atomic; pie slices are capped at measured in-use memory.
 | RAM / growth sort | F3 |
 | Include inactive | F4 |
 | RAM / commit graph | F5 |
+| Top 5 / pie overview | F6 |
+| Refresh top five | F7 |
 | Graph window | 1 / 2 / 3 |
 | Select process | Up / Down |
 | Search | Ctrl+F |
@@ -102,10 +112,12 @@ cap with repeated counter values, measures the resulting footprint, and checks
 GDI resource counts across 100 redraws of full diagnostic history. Repeated values never enter
 visible or exported history. Artifacts may contain local process paths;
 `artifacts/` is ignored. This is automated engineering evidence, not a screen-reader
-or user acceptance test. Charts and custom buttons do not currently expose full
+or user acceptance test. Top-five switching, refresh, stable identities and legend
+drilling also have controller assertions. Charts and custom buttons do not currently expose full
 UI Automation semantics; keyboard controls are provided.
 
 Source: [DanMarshall909/mem-map](https://github.com/DanMarshall909/mem-map).
 Validation details and known limits are in [docs/validation.md](docs/validation.md).
+Top-five validation is recorded in [docs/top-five-validation.md](docs/top-five-validation.md).
 Local process captures, screenshots, compiled executables and build caches are
 excluded from the repository. Build `MemMap.exe` using the commands above.

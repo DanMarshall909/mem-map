@@ -278,6 +278,9 @@ enum Action {
     Drill,
     Back,
     Pie(usize),
+    Overview(bool),
+    RefreshComparison,
+    Compare(usize),
     Growth,
     Inactive,
     Metric,
@@ -287,6 +290,9 @@ enum Action {
 
 struct App {
     history: History,
+    comparison: Comparison,
+    comparison_ready: bool,
+    overview: bool,
     fonts: Fonts,
     grouping: Grouping,
     scope: Option<Selection>,
@@ -355,6 +361,9 @@ impl App {
         unsafe {
             Self {
                 history: History::default(),
+                comparison: Comparison::default(),
+                comparison_ready: false,
+                overview: true,
                 fonts: Fonts::new(),
                 grouping: Grouping::Name,
                 scope: None,
@@ -401,6 +410,11 @@ impl App {
         }
     }
     fn refresh_rows(&mut self) {
+        if !self.comparison_ready && self.history.total > 0 {
+            self.comparison
+                .refresh(&self.history, self.grouping, self.commit);
+            self.comparison_ready = true;
+        }
         self.rows = self.history.rows_with_window(
             if self.scope.is_some() {
                 Grouping::Process
@@ -441,6 +455,9 @@ impl App {
         }
     }
     fn pie_hit(&self, x: i32, y: i32) -> Option<usize> {
+        if self.overview {
+            return None;
+        }
         let (cx, cy, r) = self.pie_circle;
         let dx = x - cx;
         let dy = y - cy;
@@ -466,6 +483,7 @@ impl App {
             },
             Action::Group(grouping) => {
                 self.grouping = grouping;
+                self.comparison_ready = false;
                 self.scope = None;
                 self.selection = None;
                 self.scroll = 0;
@@ -491,6 +509,15 @@ impl App {
                     self.scroll = 0;
                 }
             }
+            Action::Overview(top_five) => self.overview = top_five,
+            Action::RefreshComparison => self.comparison_ready = false,
+            Action::Compare(index) => {
+                if let Some(member) = self.comparison.members.get(index) {
+                    self.selection = Some(member.selection.clone());
+                    self.scope = Some(member.selection.clone());
+                    self.scroll = 0;
+                }
+            }
             Action::Growth => {
                 self.growth = !self.growth;
                 self.scroll = 0;
@@ -499,7 +526,10 @@ impl App {
                 self.inactive = !self.inactive;
                 self.scroll = 0;
             }
-            Action::Metric => self.commit = !self.commit,
+            Action::Metric => {
+                self.commit = !self.commit;
+                self.comparison_ready = false;
+            }
             Action::Range(range) => self.range = range,
             Action::Select(index) => {
                 if let Some(row) = self.rows.get(index) {
@@ -577,8 +607,69 @@ impl App {
             return;
         }
         if elapsed >= 4 && self.smoke_step == 0 {
+            self.smoke_assert(
+                self.overview && self.comparison.members.len() == 5,
+                "initial top-five overview",
+            );
+            self.smoke_assert(
+                self.hits
+                    .iter()
+                    .any(|(_, action)| matches!(action, Action::Overview(false))),
+                "pie switch control",
+            );
+            self.smoke_assert(
+                self.hits
+                    .iter()
+                    .any(|(_, action)| matches!(action, Action::RefreshComparison)),
+                "refresh control",
+            );
+            self.comparison.members.clear();
+            self.action(hwnd, Action::RefreshComparison);
+            self.smoke_assert(self.comparison.members.len() == 5, "refresh pins five");
+            let pinned: Vec<_> = self
+                .comparison
+                .members
+                .iter()
+                .map(|m| m.selection.clone())
+                .collect();
+            self.action(hwnd, Action::Range(900));
+            self.smoke_assert(
+                self.comparison
+                    .members
+                    .iter()
+                    .map(|m| &m.selection)
+                    .eq(pinned.iter()),
+                "range keeps colour identities",
+            );
+            let screenshot = unsafe { self.screenshot(&dir.join("top-five.bmp")) };
+            self.smoke_assert(screenshot.is_ok(), "top-five screenshot");
+            if let Some(expected) = self.comparison.members.first().map(|m| m.selection.clone()) {
+                self.smoke_assert(
+                    self.hits
+                        .iter()
+                        .any(|(_, action)| matches!(action, Action::Compare(0))),
+                    "clickable top-five legend",
+                );
+                self.action(hwnd, Action::Compare(0));
+                self.smoke_assert(
+                    self.scope.as_ref() == Some(&expected)
+                        && self.selection.as_ref() == Some(&expected),
+                    "comparison legend exact selection",
+                );
+                self.smoke_assert(!self.rows.is_empty() && self.rows.iter().all(|r| matches!(&r.selection, Selection::Process(key) if self.history.tracks.get(key).is_some_and(|t| self.history.matches(t, &expected)))), "comparison legend member filtering");
+                self.action(hwnd, Action::Back);
+            }
+            self.action(hwnd, Action::Overview(false));
+            self.smoke_assert(!self.overview, "pie mode action");
             self.action(hwnd, Action::Group(Grouping::Process));
             self.smoke_assert(self.grouping == Grouping::Process, "group action");
+            self.smoke_assert(
+                self.comparison
+                    .members
+                    .iter()
+                    .all(|m| matches!(m.selection, Selection::Process(_))),
+                "group action refreshes comparison identities",
+            );
             self.action(hwnd, Action::Growth);
             self.smoke_assert(self.growth, "growth action");
             self.action(hwnd, Action::Metric);
@@ -610,6 +701,8 @@ impl App {
                 self.smoke_assert(false, "insufficient selection rows");
             }
             self.action(hwnd, Action::Group(Grouping::Name));
+            let screenshot = unsafe { self.screenshot(&dir.join("pie.bmp")) };
+            self.smoke_assert(screenshot.is_ok(), "pie screenshot");
             let pie_index=self.pie.iter().position(|(_,_,target)|matches!(target,Some(Selection::Name(name)) if name=="node.exe")).unwrap_or(0);
             if let Some((start, end, Some(expected))) = self.pie.get(pie_index).cloned() {
                 let a = (start + end) / 2.0 - TAU / 4.0;
@@ -636,6 +729,8 @@ impl App {
             } else {
                 self.smoke_assert(false, "missing clickable app pie slice");
             }
+            self.action(hwnd, Action::Overview(true));
+            self.smoke_assert(self.overview, "return to top-five mode");
             self.action(hwnd, Action::Pause);
             self.smoke_assert(self.pause.load(Ordering::Relaxed), "pause flag");
             self.smoke_paused_points = self.history.times.len();
@@ -810,6 +905,125 @@ impl App {
         let fonts = self.fonts;
         let c = Canvas { dc, fonts: &fonts };
         self.paint(&c);
+    }
+    fn paint_comparison(&mut self, c: &Canvas<'_>, rx: i32, rw: i32) {
+        let plot = self.comparison.plot(&self.history, self.commit, self.range);
+        c.text(
+            rx + 12,
+            79,
+            rw - 216,
+            24,
+            if self.commit {
+                "Top 5 · Commit"
+            } else {
+                "Top 5 · RAM"
+            },
+            c.fonts.bold,
+            INK,
+            false,
+        );
+        let chart = rect(rx + 56, 113, rw - 72, 68);
+        let xy = |at: u32, value: u64| POINT {
+            x: chart.left
+                + (at.saturating_sub(plot.start) as f64 / (plot.end - plot.start).max(1) as f64
+                    * (chart.right - chart.left) as f64) as i32,
+            y: chart.bottom
+                - (value as f64 / plot.maximum as f64 * (chart.bottom - chart.top) as f64) as i32,
+        };
+        for i in 0..=2 {
+            let y = chart.top + (chart.bottom - chart.top) * i / 2;
+            c.line(
+                &[POINT { x: chart.left, y }, POINT { x: chart.right, y }],
+                BORDER,
+                1,
+            );
+            c.text(
+                rx + 2,
+                y - 8,
+                49,
+                17,
+                &bytes(plot.maximum * (2 - i) as u64 / 2),
+                c.fonts.small,
+                MUTED,
+                true,
+            );
+        }
+        for (index, series) in plot.series.iter().enumerate() {
+            for segment in &series.segments {
+                let points: Vec<_> = segment.iter().map(|(at, value)| xy(*at, *value)).collect();
+                c.line(&points, COLORS[index], 2);
+                if let Some(last) = points.last() {
+                    c.circle(last.x, last.y, 2, COLORS[index]);
+                }
+            }
+            let member = &self.comparison.members[index];
+            let label = match &member.selection {
+                Selection::Process(key) => format!("{} · PID {}", member.name, key.pid),
+                Selection::App(image) => format!("{} · {}", member.name, image),
+                Selection::Family(key) => format!("{} · family {}", member.name, key.pid),
+                _ => member.name.clone(),
+            };
+            let y = 202 + index as i32 * 14;
+            c.circle(rx + 16, y + 7, 3, COLORS[index]);
+            c.text(rx + 26, y, rw - 120, 14, &label, c.fonts.small, INK, false);
+            c.text(
+                rx + rw - 90,
+                y,
+                78,
+                14,
+                &series
+                    .current
+                    .map(bytes)
+                    .unwrap_or_else(|| "Unavailable".into()),
+                c.fonts.small,
+                MUTED,
+                true,
+            );
+            self.hits
+                .push((rect(rx + 10, y, rw - 20, 14), Action::Compare(index)));
+        }
+        c.text(
+            chart.left,
+            183,
+            75,
+            17,
+            &clock(plot.start),
+            c.fonts.small,
+            MUTED,
+            false,
+        );
+        c.text(
+            chart.right - 75,
+            183,
+            75,
+            17,
+            &clock(plot.end),
+            c.fonts.small,
+            MUTED,
+            true,
+        );
+        if plot.series.is_empty() {
+            c.text(
+                chart.left + 4,
+                130,
+                chart.right - chart.left - 8,
+                24,
+                "Waiting for accessible processes…",
+                c.fonts.small,
+                MUTED,
+                false,
+            );
+        }
+        c.text(
+            rx + 12,
+            272,
+            rw - 24,
+            14,
+            &format!("Pinned · Refresh to update · {}m window", self.range / 60),
+            c.fonts.small,
+            MUTED,
+            false,
+        );
     }
     fn paint(&mut self, c: &Canvas<'_>) {
         let w = self.width;
@@ -1148,102 +1362,127 @@ impl App {
             c.fill(rect(table_right - 6, 142 + top, 3, thumb), MUTED);
         }
         c.panel(rect(rx, 70, rw, 218));
-        c.text(
-            rx + 12,
-            79,
-            rw - 24,
-            24,
-            "Physical RAM · click an app slice",
-            f.bold,
-            INK,
-            false,
+        self.hit(
+            c,
+            rect(rx + rw - 196, 79, 48, 24),
+            "Pie",
+            !self.overview,
+            Action::Overview(false),
         );
-        let apps = self.history.rows(self.grouping, false, "", false);
-        let mut values: Vec<_> = apps
-            .iter()
-            .take(4)
-            .map(|r| (r.name.clone(), r.ram))
-            .collect();
-        let rest = apps.iter().skip(4).map(|r| r.ram).sum();
-        if rest > 0 {
-            values.push(("Other apps".into(), rest));
-        }
-        let slices = partition(self.history.total, self.history.available, &values);
-        let cx = rx + 76;
-        let cy = 177;
-        let radius = 59;
-        self.pie_circle = (cx, cy, radius);
-        let mut angle = 0.0;
-        for (index, slice) in slices.iter().enumerate() {
-            let arc = TAU * slice.bytes as f64 / self.history.total.max(1) as f64;
-            let target = if index < apps.len().min(4) {
-                Some(apps[index].selection.clone())
-            } else {
-                None
-            };
-            self.pie.push((angle, angle + arc, target.clone()));
-            let steps = (arc * 36.0).ceil().max(1.0) as usize;
-            let color = if slice.label == "Available" {
-                COLORS[7]
-            } else if slice.label == "Other in use" {
-                COLORS[6]
-            } else {
-                COLORS[index.min(5)]
-            };
-            if slice.bytes > 0 {
-                let mut polygon = vec![POINT { x: cx, y: cy }];
-                for step in 0..=steps {
-                    let a = angle + arc * step as f64 / steps as f64 - TAU / 4.0;
-                    polygon.push(POINT {
-                        x: cx + (radius as f64 * a.cos()) as i32,
-                        y: cy + (radius as f64 * a.sin()) as i32,
-                    });
-                }
-                c.polygon(&polygon, color);
-            }
-            angle += arc;
-            let y = 109 + index as i32 * 22;
-            c.circle(rx + 151, y + 10, 3, color);
-            c.text(rx + 162, y, rw - 241, 20, &slice.label, f.small, INK, false);
+        self.hit(
+            c,
+            rect(rx + rw - 144, 79, 52, 24),
+            "Top 5",
+            self.overview,
+            Action::Overview(true),
+        );
+        if self.overview {
+            self.hit(
+                c,
+                rect(rx + rw - 88, 79, 76, 24),
+                "Refresh",
+                false,
+                Action::RefreshComparison,
+            );
+            self.paint_comparison(c, rx, rw);
+        } else {
             c.text(
-                rx + rw - 79,
-                y,
-                67,
-                20,
-                &bytes(slice.bytes),
+                rx + 12,
+                79,
+                rw - 210,
+                24,
+                "Physical RAM",
+                f.bold,
+                INK,
+                false,
+            );
+            let apps = self.history.rows(self.grouping, false, "", false);
+            let mut values: Vec<_> = apps
+                .iter()
+                .take(4)
+                .map(|r| (r.name.clone(), r.ram))
+                .collect();
+            let rest = apps.iter().skip(4).map(|r| r.ram).sum();
+            if rest > 0 {
+                values.push(("Other apps".into(), rest));
+            }
+            let slices = partition(self.history.total, self.history.available, &values);
+            let cx = rx + 76;
+            let cy = 177;
+            let radius = 59;
+            self.pie_circle = (cx, cy, radius);
+            let mut angle = 0.0;
+            for (index, slice) in slices.iter().enumerate() {
+                let arc = TAU * slice.bytes as f64 / self.history.total.max(1) as f64;
+                let target = if index < apps.len().min(4) {
+                    Some(apps[index].selection.clone())
+                } else {
+                    None
+                };
+                self.pie.push((angle, angle + arc, target.clone()));
+                let steps = (arc * 36.0).ceil().max(1.0) as usize;
+                let color = if slice.label == "Available" {
+                    COLORS[7]
+                } else if slice.label == "Other in use" {
+                    COLORS[6]
+                } else {
+                    COLORS[index.min(5)]
+                };
+                if slice.bytes > 0 {
+                    let mut polygon = vec![POINT { x: cx, y: cy }];
+                    for step in 0..=steps {
+                        let a = angle + arc * step as f64 / steps as f64 - TAU / 4.0;
+                        polygon.push(POINT {
+                            x: cx + (radius as f64 * a.cos()) as i32,
+                            y: cy + (radius as f64 * a.sin()) as i32,
+                        });
+                    }
+                    c.polygon(&polygon, color);
+                }
+                angle += arc;
+                let y = 109 + index as i32 * 22;
+                c.circle(rx + 151, y + 10, 3, color);
+                c.text(rx + 162, y, rw - 241, 20, &slice.label, f.small, INK, false);
+                c.text(
+                    rx + rw - 79,
+                    y,
+                    67,
+                    20,
+                    &bytes(slice.bytes),
+                    f.small,
+                    MUTED,
+                    true,
+                );
+                if target.is_some() {
+                    self.hits
+                        .push((rect(rx + 144, y, rw - 154, 22), Action::Pie(index)));
+                }
+            }
+            c.circle(cx, cy, 36, rgb(255, 255, 255));
+            c.text(
+                cx - 33,
+                cy - 16,
+                66,
+                31,
+                &format!(
+                    "{:.0}%",
+                    used as f64 * 100.0 / self.history.total.max(1) as f64
+                ),
+                f.title,
+                INK,
+                false,
+            );
+            c.text(
+                rx + 12,
+                265,
+                rw - 24,
+                17,
+                "Other in use: system, shared & unmeasured.",
                 f.small,
                 MUTED,
-                true,
+                false,
             );
-            if target.is_some() {
-                self.hits
-                    .push((rect(rx + 144, y, rw - 154, 22), Action::Pie(index)));
-            }
         }
-        c.circle(cx, cy, 36, rgb(255, 255, 255));
-        c.text(
-            cx - 33,
-            cy - 16,
-            66,
-            31,
-            &format!(
-                "{:.0}%",
-                used as f64 * 100.0 / self.history.total.max(1) as f64
-            ),
-            f.title,
-            INK,
-            false,
-        );
-        c.text(
-            rx + 12,
-            265,
-            rw - 24,
-            17,
-            "Other in use: system, shared & unmeasured.",
-            f.small,
-            MUTED,
-            false,
-        );
         c.panel(rect(rx, 300, rw, h - 336));
         let selected = self.selection.as_ref().and_then(|s| {
             self.history
@@ -1976,6 +2215,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                     VK_F3 => Some(Action::Growth),
                     VK_F4 => Some(Action::Inactive),
                     VK_F5 => Some(Action::Metric),
+                    VK_F6 => Some(Action::Overview(!app.overview)),
+                    VK_F7 => Some(Action::RefreshComparison),
                     VK_RETURN => Some(Action::Drill),
                     VK_BACK => Some(Action::Back),
                     0x31 => Some(Action::Range(300)),
@@ -2074,7 +2315,7 @@ pub fn run() -> io::Result<()> {
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
-            wide("Mem Map — Peak RAM and growth").as_ptr(),
+            wide("Mem Map — Top 5 history").as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,

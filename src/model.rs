@@ -132,6 +132,91 @@ pub struct Row {
     pub active: bool,
 }
 
+pub struct ComparisonMember {
+    pub selection: Selection,
+    pub name: String,
+}
+
+#[derive(Default)]
+pub struct Comparison {
+    pub members: Vec<ComparisonMember>,
+}
+
+pub struct ComparisonSeries {
+    pub segments: Vec<Vec<(u32, u64)>>,
+    pub current: Option<u64>,
+}
+
+pub struct ComparisonPlot {
+    pub start: u32,
+    pub end: u32,
+    pub maximum: u64,
+    pub series: Vec<ComparisonSeries>,
+}
+
+impl Comparison {
+    pub fn plot(&self, history: &History, commit: bool, seconds: u32) -> ComparisonPlot {
+        let series: Vec<_> = self
+            .members
+            .iter()
+            .map(|member| {
+                let points = history.graph(&member.selection, commit, seconds);
+                let current = points.last().and_then(|(_, value)| *value);
+                let mut segments: Vec<Vec<(u32, u64)>> = Vec::new();
+                let mut previous = None;
+                let mut new_segment = true;
+                for (at, value) in points {
+                    if previous.is_some_and(|last| at.saturating_sub(last) > 3) {
+                        new_segment = true;
+                    }
+                    if let Some(value) = value {
+                        if new_segment {
+                            segments.push(Vec::new());
+                        }
+                        segments.last_mut().unwrap().push((at, value));
+                        new_segment = false;
+                    } else {
+                        new_segment = true;
+                    }
+                    previous = Some(at);
+                }
+                ComparisonSeries { segments, current }
+            })
+            .collect();
+        let peak = series
+            .iter()
+            .flat_map(|s| &s.segments)
+            .flatten()
+            .map(|(_, value)| *value)
+            .max()
+            .unwrap_or(0);
+        ComparisonPlot {
+            start: history.at.saturating_sub(seconds),
+            end: history.at.max(1),
+            maximum: peak.saturating_add(peak / 10).max(10 * 1024 * 1024),
+            series,
+        }
+    }
+    pub fn refresh(&mut self, history: &History, grouping: Grouping, commit: bool) {
+        let mut rows = history.rows(grouping, false, "", false);
+        rows.sort_by(|a, b| {
+            let value = |row: &Row| if commit { row.commit } else { row.ram };
+            value(b)
+                .cmp(&value(a))
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.detail.cmp(&b.detail))
+        });
+        self.members = rows
+            .into_iter()
+            .take(5)
+            .map(|row| ComparisonMember {
+                selection: row.selection,
+                name: row.name,
+            })
+            .collect();
+    }
+}
+
 #[derive(Default)]
 pub struct History {
     pub tracks: BTreeMap<ProcessKey, Track>,
@@ -441,6 +526,139 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn comparison_uses_one_scale_and_time_window_with_gaps_and_no_false_zeroes() {
+        let mut h = History::default();
+        h.observe(frame(
+            0,
+            vec![sample(1, 1, 100 * 1024), sample(2, 2, 50 * 1024)],
+        ));
+        let mut comparison = Comparison::default();
+        comparison.refresh(&h, Grouping::Process, false);
+        h.observe(frame(
+            2,
+            vec![sample(1, 1, 200 * 1024), sample(2, 2, 80 * 1024)],
+        ));
+        h.observe(frame(10, vec![sample(1, 1, 300 * 1024)]));
+        h.observe(frame(12, vec![sample(2, 2, 90 * 1024)]));
+        h.observe(frame(
+            14,
+            vec![sample(1, 1, 400 * 1024), sample(2, 2, 100 * 1024)],
+        ));
+        let mib = 1024 * 1024;
+        let plot = comparison.plot(&h, false, 300);
+        assert_eq!((plot.start, plot.end, plot.maximum), (0, 14, 440 * mib));
+        assert_eq!(plot.series.len(), 2);
+        assert_eq!(
+            plot.series[0].segments,
+            vec![
+                vec![(0, 100 * mib), (2, 200 * mib)],
+                vec![(10, 300 * mib)],
+                vec![(14, 400 * mib)]
+            ]
+        );
+        assert_eq!(
+            plot.series[1].segments,
+            vec![
+                vec![(0, 50 * mib), (2, 80 * mib)],
+                vec![(12, 90 * mib), (14, 100 * mib)]
+            ]
+        );
+        assert_eq!(plot.series[0].current, Some(400 * mib));
+        let zoom = comparison.plot(&h, true, 3);
+        assert_eq!((zoom.start, zoom.end, zoom.maximum), (11, 14, 880 * mib));
+        assert_eq!(zoom.series[0].segments, vec![vec![(14, 800 * mib)]]);
+        assert_eq!(
+            zoom.series[1].segments,
+            vec![vec![(12, 180 * mib), (14, 200 * mib)]]
+        );
+        h.observe(frame(16, vec![]));
+        assert!(
+            comparison
+                .plot(&h, false, 300)
+                .series
+                .iter()
+                .all(|s| s.current.is_none())
+        );
+        let empty = Comparison::default().plot(&History::default(), false, 300);
+        assert!(empty.series.is_empty());
+        assert!(empty.end > empty.start && empty.maximum > 0);
+    }
+    #[test]
+    fn comparison_pins_five_current_groups_and_refreshes_by_metric_without_identity_reuse() {
+        let mut history = History::default();
+        let processes: Vec<_> = (1..=7)
+            .map(|pid| {
+                let mut p = sample(pid, u64::from(pid), pid * 100);
+                p.name = format!("app{pid}.exe");
+                p.image = format!("C:\\Apps\\app{pid}.exe");
+                p.commit = u64::from(8 - pid) * 1000 * 1024;
+                p
+            })
+            .collect();
+        history.observe(frame(0, processes.clone()));
+        let mut comparison = Comparison::default();
+        comparison.refresh(&history, Grouping::Name, false);
+        assert_eq!(
+            comparison
+                .members
+                .iter()
+                .map(|m| m.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["app7.exe", "app6.exe", "app5.exe", "app4.exe", "app3.exe"]
+        );
+        history.observe(frame(2, vec![processes[0].clone()]));
+        assert_eq!(
+            comparison.members[0].selection,
+            Selection::Name("app7.exe".into())
+        );
+        assert_eq!(
+            history.graph(&comparison.members[0].selection, false, 300),
+            vec![(0, Some(700 * 1024)), (2, None)]
+        );
+        comparison.refresh(&history, Grouping::Name, true);
+        assert_eq!(comparison.members.len(), 1);
+        assert_eq!(
+            comparison.members[0].selection,
+            Selection::Name("app1.exe".into())
+        );
+        history.observe(frame(4, processes.clone()));
+        comparison.refresh(&history, Grouping::Process, true);
+        assert_eq!(
+            comparison
+                .members
+                .iter()
+                .map(|m| m.selection.clone())
+                .collect::<Vec<_>>(),
+            (1..=5)
+                .map(|pid| Selection::Process(ProcessKey {
+                    pid,
+                    created: u64::from(pid)
+                }))
+                .collect::<Vec<_>>()
+        );
+        let mut reused = sample(1, 1000, 9999);
+        reused.name = "new.exe".into();
+        history.observe(frame(6, vec![reused]));
+        assert_eq!(
+            history
+                .graph(&comparison.members[0].selection, true, 300)
+                .last(),
+            Some(&(6, None))
+        );
+        comparison.refresh(&history, Grouping::Process, false);
+        assert_eq!(
+            comparison.members[0].selection,
+            Selection::Process(ProcessKey {
+                pid: 1,
+                created: 1000
+            })
+        );
+        history.observe(frame(8, vec![]));
+        comparison.refresh(&history, Grouping::Name, false);
+        assert!(comparison.members.is_empty());
+    }
+
     #[test]
     fn configurable_growth_accepts_presets_custom_durations_and_rejects_outside_retention() {
         for (text, expected) in [

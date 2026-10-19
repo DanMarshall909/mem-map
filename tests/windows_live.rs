@@ -2,9 +2,58 @@
 
 use mem_map::sampler::capture;
 
+// Both tests observe process-global handles; an owned child must not skew the
+// other test's before/after handle counts when the test harness runs in parallel.
+static NATIVE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+#[ignore = "slow: captures a real owned child process and its parent"]
+fn native_capture_names_the_actual_parent_of_an_owned_child() {
+    let _guard = NATIVE_TEST_LOCK.lock().unwrap();
+    use mem_map::model::History;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+    use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+
+    struct ChildProbe(std::process::Child);
+    impl Drop for ChildProbe {
+        fn drop(&mut self) {
+            // EOF releases the test-owned command, including during an assertion panic.
+            drop(self.0.stdin.take());
+            let _ = self.0.wait();
+        }
+    }
+    let command = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+        .join("System32")
+        .join("cmd.exe");
+    let probe = ChildProbe(
+        Command::new(command)
+            .args(["/D", "/Q", "/C", "set /p memmap_parent_probe="])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .unwrap(),
+    );
+    let mut history = History::default();
+    history.observe(capture(0).expect("Native parent/child capture"));
+    let child = history
+        .tracks
+        .values()
+        .find(|t| t.key.pid == probe.0.id())
+        .expect("Owned child is visible");
+    assert_eq!(child.parent_pid, std::process::id());
+    let executable = std::env::current_exe().unwrap();
+    let expected = executable.file_name().unwrap().to_string_lossy();
+    assert_eq!(child.parent_name.as_deref(), Some(expected.as_ref()));
+    assert_eq!(child.name, "cmd.exe");
+}
+
 #[test]
 #[ignore = "slow: reads live OS counters and touches 64 MiB"]
 fn native_sampler_tracks_real_private_allocation_and_stable_process_identity() {
+    let _guard = NATIVE_TEST_LOCK.lock().unwrap();
     let pid = std::process::id();
     let before = capture(0).expect("Native Windows sample");
     let own = before

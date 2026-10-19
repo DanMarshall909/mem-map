@@ -22,9 +22,13 @@ building, or launch `target\release\mem-map.exe`. No installer or background ser
   general Windows launchers (Explorer, service managers, shells and terminals),
   validate parent creation time and retain known ancestry after the parent exits.
 - Select a row for its RAM or private-commit graph; hover for an exact sample.
+- Individual process rows and details include the parent name and PID. Parent names
+  come from observed processes older than their children and are retained after
+  exit. A name that cannot be established is **Unavailable**; PID reuse does not
+  replace an already observed parent. Processes without a recorded parent show **None**.
 - Individual details include executable path, PID, parent PID, RAM, private commit,
   working set, growth, peak and retained sample count.
-- Sort by RAM or RAM growth, search names/paths/PIDs, and inspect inactive history.
+- Sort by RAM or RAM growth, search names/parent names/paths/PIDs, and inspect inactive history.
 - **Peak RAM** is the highest sampled private RAM in retained history, up to 30
   minutes. Group peaks use simultaneous totals, so peaks from different times
   are not added together. Spikes between samples are not measured.
@@ -119,5 +123,6 @@ UI Automation semantics; keyboard controls are provided.
 Source: [DanMarshall909/mem-map](https://github.com/DanMarshall909/mem-map).
 Validation details and known limits are in [docs/validation.md](docs/validation.md).
 Top-five validation is recorded in [docs/top-five-validation.md](docs/top-five-validation.md).
+Parent-name validation is recorded in [docs/parent-name-validation.md](docs/parent-name-validation.md).
 Local process captures, screenshots, compiled executables and build caches are
 excluded from the repository. Build `MemMap.exe` using the commands above.

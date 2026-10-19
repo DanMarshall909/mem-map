@@ -102,6 +102,21 @@ pub struct Track {
     pub family: ProcessKey,
     pub parent_pid: u32,
     pub working_set: u64,
+    pub parent_name: Option<String>,
+}
+
+impl Track {
+    pub fn parent_description(&self) -> String {
+        if self.parent_pid == 0 {
+            "None".into()
+        } else {
+            format!(
+                "{} (PID {})",
+                self.parent_name.as_deref().unwrap_or("Unavailable"),
+                self.parent_pid
+            )
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -282,6 +297,7 @@ impl History {
                                 | "conhost.exe"
                                 | "taskmgr.exe"
                         ),
+                        p.name.clone(),
                     ),
                 )
             })
@@ -291,10 +307,11 @@ impl History {
             .iter()
             .map(|p| {
                 let mut root = p.key;
-                while let Some((_, parent_pid, _)) = parents.get(&root.pid) {
-                    if let Some((parent, _, _)) = parents
-                        .get(parent_pid)
-                        .filter(|(parent, _, launcher)| parent.created < root.created && !launcher)
+                while let Some((_, parent_pid, _, _)) = parents.get(&root.pid) {
+                    if let Some((parent, _, _, _)) =
+                        parents.get(parent_pid).filter(|(parent, _, launcher, _)| {
+                            parent.created < root.created && !launcher
+                        })
                     {
                         root = *parent;
                     } else {
@@ -339,7 +356,14 @@ impl History {
                 family: families[&process.key],
                 parent_pid: process.parent_pid,
                 working_set: process.working_set,
+                parent_name: None,
             });
+            if track.parent_name.is_none() {
+                track.parent_name = parents
+                    .get(&track.parent_pid)
+                    .filter(|(parent, _, _, _)| parent.created < track.key.created)
+                    .map(|(_, _, _, name)| name.clone());
+            }
             track.points.push_back(point);
             while track.points.len() > MAX_POINTS
                 || track.points.front().is_some_and(|p| p.at < oldest)
@@ -418,7 +442,10 @@ impl History {
                     self.matches(t, &r.selection)
                         && (t.name.to_lowercase().contains(&query)
                             || t.image.contains(&query)
-                            || t.key.pid.to_string().contains(&query))
+                            || t.key.pid.to_string().contains(&query)
+                            || t.parent_name
+                                .as_ref()
+                                .is_some_and(|name| name.to_lowercase().contains(&query)))
                 })
         });
         for row in &mut rows {
@@ -526,6 +553,57 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn parent_names_are_retained_after_exit_and_never_replaced_by_reused_pids() {
+        let mut parent = sample(10, 100, 500);
+        parent.name = "ChatGPT.exe".into();
+        let mut child = sample(20, 200, 100);
+        child.name = "codex.exe".into();
+        child.parent_pid = 10;
+        let mut h = History::default();
+        h.observe(frame(0, vec![parent, child.clone()]));
+        assert_eq!(
+            h.tracks[&child.key].parent_description(),
+            "ChatGPT.exe (PID 10)"
+        );
+        h.observe(frame(2, vec![child.clone()]));
+        assert_eq!(
+            h.tracks[&child.key].parent_description(),
+            "ChatGPT.exe (PID 10)"
+        );
+        let mut reused = sample(10, 300, 900);
+        reused.name = "unrelated.exe".into();
+        let mut unknown = sample(30, 250, 200);
+        unknown.name = "worker.exe".into();
+        unknown.parent_pid = 10;
+        h.observe(frame(
+            4,
+            vec![reused, child.clone(), unknown.clone(), sample(40, 400, 50)],
+        ));
+        assert_eq!(
+            h.tracks[&child.key].parent_description(),
+            "ChatGPT.exe (PID 10)"
+        );
+        assert_eq!(
+            h.tracks[&unknown.key].parent_description(),
+            "Unavailable (PID 10)"
+        );
+        assert_eq!(
+            h.tracks[&ProcessKey {
+                pid: 40,
+                created: 400
+            }]
+                .parent_description(),
+            "None"
+        );
+        assert_eq!(
+            h.rows(Grouping::Process, false, "chatgpt", false)
+                .iter()
+                .map(|r| r.selection.clone())
+                .collect::<Vec<_>>(),
+            vec![Selection::Process(child.key)]
+        );
+    }
     #[test]
     fn comparison_uses_one_scale_and_time_window_with_gaps_and_no_false_zeroes() {
         let mut h = History::default();

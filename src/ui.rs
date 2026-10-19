@@ -670,6 +670,17 @@ impl App {
                     .all(|m| matches!(m.selection, Selection::Process(_))),
                 "group action refreshes comparison identities",
             );
+            let parent_row = self.rows.iter().position(|row| matches!(&row.selection,
+                Selection::Process(key) if self.history.tracks.get(key).is_some_and(|t|t.parent_name.as_deref()==Some("ChatGPT.exe"))))
+                .or_else(|| self.rows.iter().position(|row| matches!(&row.selection,
+                    Selection::Process(key) if self.history.tracks.get(key).is_some_and(|t|t.parent_name.is_some()))));
+            if let Some(index) = parent_row {
+                self.action(hwnd, Action::Select(index));
+                let screenshot = unsafe { self.screenshot(&dir.join("parent-detail.bmp")) };
+                self.smoke_assert(screenshot.is_ok(), "parent detail screenshot");
+            } else {
+                self.smoke_assert(false, "no observed parent for detail inspection");
+            }
             self.action(hwnd, Action::Growth);
             self.smoke_assert(self.growth, "growth action");
             self.action(hwnd, Action::Metric);
@@ -1152,7 +1163,7 @@ impl App {
             (w - 958).max(110),
             22,
             if self.query.is_empty() {
-                "Search name / path / PID"
+                "Search name / parent / path / PID"
             } else {
                 &self.query
             },
@@ -1245,7 +1256,13 @@ impl App {
                 if row.active { INK } else { MUTED },
                 false,
             );
-            let path = if matches!(row.selection, Selection::Name(_)) {
+            let path = if let Selection::Process(key) = &row.selection {
+                self.history
+                    .tracks
+                    .get(key)
+                    .map(|track| format!("Parent: {} · {}", track.parent_description(), row.detail))
+                    .unwrap_or_else(|| row.detail.clone())
+            } else if matches!(row.selection, Selection::Name(_)) {
                 let paths: std::collections::BTreeSet<_> = self
                     .history
                     .tracks
@@ -1543,7 +1560,33 @@ impl App {
             self.hits.push((r, Action::Drill));
         }
         let path = paths.iter().copied().collect::<Vec<_>>().join(" | ");
-        c.paragraph(rect(rx + 12, 365, rw - 24, 46), &path, MUTED);
+        let single = if members.len() == 1 {
+            Some(members[0])
+        } else {
+            None
+        };
+        c.paragraph(
+            rect(
+                rx + 12,
+                365,
+                rw - 24,
+                if single.is_some() { 32 } else { 46 },
+            ),
+            &path,
+            MUTED,
+        );
+        if let Some(track) = single {
+            c.text(
+                rx + 12,
+                399,
+                rw - 24,
+                16,
+                &format!("Parent: {}", track.parent_description()),
+                f.small,
+                MUTED,
+                false,
+            );
+        }
         let points = self
             .selection
             .as_ref()
@@ -1554,11 +1597,6 @@ impl App {
         let ram = selected.as_ref().map(|r| r.ram).unwrap_or(0);
         let commit = selected.as_ref().map(|r| r.commit).unwrap_or(0);
         let growth = selected.as_ref().map(|r| r.growth).unwrap_or(0);
-        let single = if members.len() == 1 {
-            Some(members[0])
-        } else {
-            None
-        };
         let growth_label = format!("RAM growth · {}", window_label(self.growth_window));
         let fields = [
             (
@@ -1996,7 +2034,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                     search,
                     EM_SETCUEBANNER,
                     1,
-                    wide("Search name / path / PID").as_ptr() as isize,
+                    wide("Search name / parent / path / PID").as_ptr() as isize,
                 );
                 let growth = CreateWindowExW(
                     0,
@@ -2315,7 +2353,7 @@ pub fn run() -> io::Result<()> {
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
-            wide("Mem Map — Top 5 history").as_ptr(),
+            wide("Mem Map — Parent process names").as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,

@@ -1,156 +1,108 @@
 # Mem Map
 
-A small, native Windows memory monitor written in Rust. Run **MemMap.exe** after
-building, or launch `target\release\mem-map.exe`. No installer or background service.
+A native Windows memory monitor in Rust. Build and run **MemMap.exe**. No installer,
+elevation, background service, process termination or memory trimming is required.
 
-- A dense table occupies most of the window. The narrow sidebar holds the pie,
-  selected process details and history. Click an app slice or legend to inspect
-  its processes; double-click a group or use Expand to do the same.
-- **Top 5** stacks the five largest active groups in a filled area chart.
-  Each band's thickness shows that group's usage; the top edge is their combined
-  total. The legend shows individual values on the shared cumulative memory scale.
-  Click a legend to inspect its members. Switch to **Pie** for the physical-memory
-  breakdown. The selected-process history remains available below either view.
-  Top 5 follows Name/Path/Family/PID grouping and the RAM/Commit metric, independently
-  of table search and growth sorting. Colours and identities stay pinned across
-  samples and exits until **Refresh**, grouping or metric changes. Missing data
-  and pauses leave gaps; a missing lower band also leaves the bands above it
-  unplotted. **Unavailable** does not mean zero. Both charts share the
-  5/15/30-minute zoom. Comparison history reuses the existing bounded capture.
-- Physical-memory pie: the largest apps, other apps, system/shared/unmeasured RAM,
-  and available RAM. Shared mappings are not added repeatedly across processes.
-- **Name** combines same-name processes across install paths, giving all `node.exe`
-  instances one collective total. **Path** separates installs; **Family** combines
-  parent/child processes; **PID** lists individual instances. Families stop at
-  general Windows launchers (Explorer, service managers, shells and terminals),
-  validate parent creation time and retain known ancestry after the parent exits.
-- Select a row for its RAM or private-commit graph; hover for an exact sample.
-- Individual process rows and details include the parent name and PID. Parent names
-  come from observed processes older than their children and are retained after
-  exit. A name that cannot be established is **Unavailable**; PID reuse does not
-  replace an already observed parent. Processes without a recorded parent show **None**.
-- Click a highlighted parent in a row or the details to jump to that exact process
-  instance. Navigation clears search and group scope and includes inactive history.
-  Expired or unobserved parents are not links; a reused PID cannot redirect them.
-- Consolas is used throughout, including the native search and growth controls.
-  Scale the interface from 75% to 200%; scrollbars expose enlarged content.
-- Individual details include executable path, PID, parent PID, RAM, private commit,
-  working set, growth, peak and retained sample count.
-- Sort by RAM or RAM growth, search names/parent names/paths/PIDs, and inspect inactive history.
-- **Peak RAM** is the highest sampled private RAM in retained history, up to 30
-  minutes. Group peaks use simultaneous totals, so peaks from different times
-  are not added together. Spikes between samples are not measured.
-- **Growth over** is independent of graph zoom. Select a preset or type `90s`,
-  `7m` or `15` (minutes). Range: 1s–30m at two-second sample resolution.
-  **Session** uses all available retained history.
-- 30 minutes of session history, sampled every two seconds. Zoom either chart's
-  time window from 30 seconds to 30 minutes, or choose 5/15/30-minute presets.
-  Zoom preserves captured history and pinned comparison identities.
-  Pause freezes collection; resume leaves time gaps visible.
-- CSV export includes process identity, elapsed seconds, RAM and commit in KiB.
-  Missing observations are blank, rather than zero. Nothing is saved automatically.
-- The monitor shows its own private RAM and total working set.
+The dark dashboard combines a virtual process tree grid, an overall-memory
+stacked area chart and a scrolling inspector. Header, table, overview and summary
+readings come from one completed collection snapshot.
 
-Requires **64-bit Windows 10 22H2 or Windows 11 22H2 with September 2023 updates,
-or newer**. It uses documented
-[EX2 counters](https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-process_memory_counters_ex2).
-Normal user privileges suffice for accessible processes. Protected processes are
-counted as unmeasured; their RAM remains in the system remainder. No elevation,
-process termination or memory trimming is attempted.
+- **Overall memory usage** always represents physical RAM from zero to capacity.
+  Three prominent executable names are pinned after the first collection. Other
+  measured private working sets and residual system usage complete the stack.
+  Filtering, sorting and selection do not replace the bands. Failed system
+  samples leave gaps; uncertain attribution retains a neutral system total.
+- **Name**, **Path**, **Process tree** and **Individual processes** show executable
+  groups, complete-path groups, actual ancestry and flat instances. **App families**
+  retains the earlier launcher-bounded grouping. Process-tree rows show each
+  process's own measurements. Filtering retains matching descendants' ancestors
+  and keeps group totals based on full membership.
+- **Private working set** measures private resident physical memory; **Private
+  commit** measures private committed virtual memory. Peak uses simultaneous
+  group totals within the retained 30-minute window. Change uses the last valid
+  complete sample at or before the requested target, at most two collection
+  intervals old. Insufficient or incomplete endpoints have explanations.
+- **Pause display** freezes displayed readings, ordering and chart endpoints while
+  recording continues. Selection, filtering and full-path copying remain usable.
+  Resume advances to the latest completed snapshot. A history chart with
+  Follow latest unchecked retains its inspected endpoint.
+- Selected history has independent metric, range, Y-axis and Follow latest
+  controls. Wheel zoom and dragging navigate time. Reset view restores following
+  while retaining metric and requested range. Missing observations remain gaps.
+- **Export CSV** exports distinct filtered instances from the displayed snapshot,
+  including offscreen records. Expansion cannot duplicate aggregate values. The
+  identity, elapsed-time and raw KiB columns are retained, with capture timestamp,
+  exact byte values, lifecycle, measurement reason and provisional generation
+  appended. Unknown creation times and readings stay blank. Paused exports use
+  the paused snapshot.
+- **Details** contains collection failures, coverage, last successful collection,
+  retained samples, omitted-track information and the monitor's own footprint.
 
-## Reading the numbers
+A worker collects every two seconds. Creation time distinguishes PID reuse;
+unidentified lifetimes have separate provisional generations. Current rows and
+CSV use the complete scan independently of bounded historical retention. History
+is session-only: up to 30 minutes, 901 sample times and 1,024 detailed process
+tracks, with selected history receiving retention priority. Confirmed exits and
+inaccessible measurements have distinct states.
 
-**Private RAM** is physical memory belonging exclusively to that process.
-**Commit** is private committed virtual memory, which may reside in RAM or have
-backing elsewhere. It is not actual pagefile usage. Comparing the two helps find
-growth even when Windows pages memory out. **Available** includes standby memory.
-See Microsoft's [working set explanation](https://learn.microsoft.com/en-us/windows/win32/memory/working-set).
+Selected identity is retained separately from detailed history: names, full known
+paths, member counts and one last leaf observation remain inspectable after an
+exit. Incomplete path coverage is labelled explicitly.
 
-Growth compares current RAM with the first captured value inside the chosen
-lookback, limited to available history and the most recent continuous segment.
-Missing observations or long pauses reset that baseline. Group growth compares
-simultaneous group totals, including processes joining or leaving. Availability
-changes also affect measured totals. A lookback shorter than the sample interval
-may contain only one point and show zero observed change.
-“Inactive” means not observed in the latest scan, including exited or inaccessible
-processes. History is session-only; closing the app clears it.
+Presentation preferences are stored in `%LOCALAPPDATA%\MemMap\preferences.ini`.
+They include grouping, density, splitter, columns, chart ranges, Y-axis mode and
+UI zoom. Process paths, filters and captured history are not saved there. CSV is
+saved only on request; local captures and binaries are excluded from Git.
 
-To bound overhead, retain at most **1,024 process instances** and **901 points per
-instance**. Old inactive instances are evicted first when space is needed. The
-footer reports omitted tracks. Compact history points use 12 bytes (KiB precision),
-with roughly 12 MiB of allocated ring storage at the hard cap, plus metadata and
-the native drawing buffer. It does not scan individual memory pages or modules.
-Sampling is not atomic; pie slices are capped at measured in-use memory.
+## Keyboard and accessibility
 
-## Controls
+Tab moves through native controls, table and inspector. Segments have radio
+behavior; Space activates focused checkboxes/buttons. Table arrows navigate,
+expand, collapse or move to a parent. Ctrl+F focuses the filter; Escape clears it.
+Ctrl+wheel and Ctrl+plus/minus scale the application; Ctrl+0 restores normal UI
+zoom. Chart navigation remains separate. F2 cycles grouping, F3 switches memory/
+change sorting, F4 toggles exited instances, F5 switches history metric and F8
+navigates to a retained parent.
 
-| Action | Shortcut |
-| --- | --- |
-| Pause / resume | Space (outside search) |
-| Cycle Name / Path / Family / PID | F2 |
-| Expand selected group | Enter or double-click |
-| Return from expanded group | Backspace or All groups |
-| RAM / growth sort | F3 |
-| Include inactive | F4 |
-| RAM / commit graph | F5 |
-| Top 5 / pie overview | F6 |
-| Refresh top five | F7 |
-| Go to selected process's parent | F8 or click highlighted parent |
-| Graph window | 1 / 2 / 3 |
-| Chart time zoom | + / −, chart buttons or wheel over either chart |
-| Interface zoom | Ctrl+wheel, Ctrl+plus / minus or UI − / + |
-| Reset interface zoom | Ctrl+0 or click the percentage |
-| Select process | Up / Down |
-| Search | Ctrl+F |
-| Clear search / return to table | Escape |
-| Scroll process list | Mouse wheel outside charts |
-| Pan enlarged interface | Window scrollbars |
+Native controls and a UI Automation provider expose names, measurements,
+hierarchy, expansion, selection and sort state. Read-only chart value fields
+support inspection without a mouse. DPI, Windows text size and UI zoom adapt the
+layout. The table measures numeric widths before allocating bar space, controls
+wrap, and ordinary windows keep their header and footer visible. Long process
+lists and inspector details scroll inside their panels; extreme window sizes
+retain an overflow fallback for readable access.
 
 ## Build and verify
 
-The app icon is embedded in the executable and used for its small and large
-window icons. Editable artwork and exports are in `assets/mem-map.svg`,
-`assets/mem-map.png` and `assets/mem-map.ico` (16–256px with transparency).
-To regenerate the exports on Windows, run `./scripts/icon.ps1`; this uses Windows
-WPF offline and is not part of normal builds. Keep the SVG path artwork and both
-exports together. Resource compilation uses the build-only `embed-resource`
-crate and the Windows SDK resource compiler or MinGW `windres`.
+Requires 64-bit Windows 10/11 22H2 with September 2023 updates or newer for the
+[EX2 private-working-set counter](https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-process_memory_counters_ex2).
+Available memory includes immediately reusable standby, free and zeroed pages;
+see [Microsoft's memory-status definition](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/ns-sysinfoapi-memorystatusex).
 
-Install stable Rust with either the MSVC desktop C++ prerequisites or a working
-MinGW toolchain. The PowerShell driver also detects the isolated toolchain used
-for this workspace at `%LOCALAPPDATA%\mem-map-build`; it does not install tools.
+Use stable Rust and a compatible Windows linker/resource compiler. The PowerShell
+driver detects the isolated toolchain under `%LOCALAPPDATA%\mem-map-build`; it
+does not install tools. For this Windows GNU setup it selects LLVM clang/LLD
+and Rust's matching runtime. The affected GNU BFD linker can produce malformed
+imports with the current Windows bindings despite a successful link.
 
 ```powershell
 .\scripts\build.ps1
-.\scripts\check.ps1 fast    # deterministic model tests; target <2s excluding compilation
-.\scripts\check.ps1 slow    # actual Windows counters, 64 MiB allocation and handle lifetime
+.\scripts\check.ps1 fast  # model, preferences, provider and collector-status contracts
+.\scripts\check.ps1 slow  # real Windows allocation, identity and handle lifetime
 .\scripts\check.ps1 all
 .\scripts\cargo.ps1 fmt --check
 .\scripts\cargo.ps1 -CargoArgs @('clippy', '--all-targets', '--', '-D', 'warnings')
 .\scripts\smoke.ps1
 ```
 
-The hidden smoke run collects real samples and asserts view, metric, range,
-selection, custom/invalid growth duration, peak invariants, pie hit-testing and
-drill-down outcomes. Pause must freeze observations
-across two sampling intervals; resume must add an observation with a visible gap.
-It exports CSV, renders main/group/process BMPs, fills a **separate diagnostic history** to its
-cap with repeated counter values, measures the resulting footprint, and checks
-GDI resource counts across 100 redraws of full diagnostic history. Repeated values never enter
-visible or exported history. Artifacts may contain local process paths;
-`artifacts/` is ignored. This is automated engineering evidence, not a screen-reader
-or user acceptance test. Top-five switching, refresh, stable identities and legend
-drilling also have controller assertions. Charts and custom buttons do not currently expose full
-UI Automation semantics; keyboard controls are provided.
-The native smoke also drives parent links, chart/Ctrl wheel zoom, overflow scrollbars
-and DPI messages; it checks actual font metrics and native control placement.
-These in-process message checks do not prove external mouse/keyboard input or
-physical monitor transitions.
+The native smoke uses real collection and controls, checks paused recording,
+export and path copying, renders several sizes/scales and measures GDI resources.
+A separate diagnostic history exercises full retention without inventing visible
+or exported observations. Captures can contain local process paths and remain in
+ignored `artifacts/`.
 
-Source: [DanMarshall909/mem-map](https://github.com/DanMarshall909/mem-map).
-Validation details and known limits are in [docs/validation.md](docs/validation.md).
-Top-five validation is recorded in [docs/top-five-validation.md](docs/top-five-validation.md).
-Parent-name validation is recorded in [docs/parent-name-validation.md](docs/parent-name-validation.md).
-Navigation/font/zoom validation is in [docs/navigation-zoom-validation.md](docs/navigation-zoom-validation.md).
-Local process captures, screenshots, compiled executables and build caches are
-excluded from the repository. Build `MemMap.exe` using the commands above.
+The accepted redesign is in [the specification](docs/system-memory-spec.md).
+Current evidence is in [dashboard validation](docs/system-memory-validation.md).
+Earlier `docs/*-validation.md` records remain historical evidence for superseded
+views. The icon source and exports remain in `assets/`; `scripts/icon.ps1`
+regenerates exports with Windows WPF.

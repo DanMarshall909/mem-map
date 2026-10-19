@@ -56,12 +56,30 @@ fn native_sampler_tracks_real_private_allocation_and_stable_process_identity() {
     let _guard = NATIVE_TEST_LOCK.lock().unwrap();
     let pid = std::process::id();
     let before = capture(0).expect("Native Windows sample");
+    assert!(
+        before.complete_scan,
+        "The live fixture requires a completed OS enumeration"
+    );
+    assert!(before.system_error.is_none());
     let own = before
         .processes
         .iter()
         .find(|p| p.key.pid == pid)
         .expect("Self is observable");
     assert!(own.key.created > 0);
+    assert_eq!(
+        own.key.generation, 0,
+        "An OS creation time is a known identity"
+    );
+    let enumerated = before
+        .observed
+        .iter()
+        .find(|p| p.pid == pid)
+        .expect("Own process has enumeration metadata");
+    assert_eq!(enumerated.key, Some(own.key));
+    assert_eq!(enumerated.name, own.name);
+    assert_eq!(enumerated.image.as_deref(), Some(own.image.as_str()));
+    assert!(before.observed.len() >= before.processes.len());
     assert!(own.image.to_lowercase().contains("windows_live"));
     assert!(own.private > 0 && own.working_set >= own.private);
     assert!(before.total > before.available && before.available > 0);

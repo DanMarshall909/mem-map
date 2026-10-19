@@ -15,7 +15,15 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Diagnostics_ToolHelp", "Win32_System_LibraryLoader",
     "Win32_UI_WindowsAndMessaging", "Win32_UI_HiDpi", "Win32_UI_Controls", "Win32_UI_Controls_Dialogs",
     "Win32_UI_Input_KeyboardAndMouse", "Win32_Security",
+    "Win32_System_DataExchange", "Win32_System_Memory", "Win32_UI_Shell",
+    "Win32_System_Com", "Win32_UI_Accessibility", "Win32_System_Time",
+    "Win32_Storage_FileSystem",
 ] }
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation", "Win32_UI_Accessibility", "Win32_System_Com",
+    "Win32_System_Ole", "Win32_System_Variant", "Win32_System_WinRT", "UI_ViewManagement",
+] }
+windows-core = "0.62.2"
 
 [profile.release]
 opt-level = "s"

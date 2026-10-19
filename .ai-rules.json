@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "resources": {
     "memory": {
-      "reserveMiBPerActiveWorktree": 512,
+      "reserveMiBPerActiveWorktree": 1024,
       "basis": "estimated",
-      "estimateReason": "Small Rust/Win32 crate with one bindings dependency; reserve is for compilation and tests, not the monitor runtime."
+      "estimateReason": "Rust/Win32 application with Windows API and UI Automation bindings; conservative reserve for one serialized compiler/test worker, not the monitor runtime."
     }
   }
 }

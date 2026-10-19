@@ -35,3 +35,7 @@ Independent completion review: PASS, retained in artifacts/stacked/review/verdic
 Existing source coverage, mutation, external-input and hosted acceptance gaps
 remain disclosed. Publish normally to the existing feature PR #2; no merge or
 cleanup. Earlier worktrees, app captures and warm caches are preserved.
+
+User-requested cosmetic follow-up: remove the grid lines running through the
+stacked chart. Removed only those grid strokes, keeping axes and bands. Visual
+verification and existing checks pass; see docs/stacked-area-validation.md.

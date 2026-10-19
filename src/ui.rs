@@ -1162,15 +1162,6 @@ impl App {
             self.hits
                 .push((rect(rx + 10, y, rw - 20, 14), Action::Compare(index)));
         }
-        // Keep the shared scale readable over opaque filled bands.
-        for i in 0..=2 {
-            let y = chart.top + (chart.bottom - chart.top) * i / 2;
-            c.line(
-                &[POINT { x: chart.left, y }, POINT { x: chart.right, y }],
-                BORDER,
-                1,
-            );
-        }
         c.text(
             chart.left,
             183,

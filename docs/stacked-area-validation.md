@@ -49,3 +49,15 @@ The isolated local branch feat/stacked-area pushes normally to origin/feat/app-i
 The older local app-icon branch/worktree and running captures stay at their prior
 revision; they are preserved, as are other worktrees, evidence and warm caches.
 No merge or cleanup is included.
+
+## Cosmetic follow-up: remove grid lines
+
+At the user's request, removed the horizontal grid strokes drawn over the stacked
+bands. Axis labels, coloured areas and legend hit targets remain. Inspected the
+new full-history render in artifacts/grid-free/smoke/stacked-full-history.bmp.
+All 22 existing tests, formatting, denied-warning Clippy, locked release and native
+smoke pass; GDI counts remain 28 to 28 across 105 redraws. No new test is needed
+for this reversible drawing-only deletion. The independent review above records
+the original stacked-area candidate; this follow-up uses visual verification.
+The 491,008-byte follow-up release has SHA256
+`2704876334b93f5ed3d408788d1191a5f68a76d8cdbf4bb9f230328fbd2410f4`.

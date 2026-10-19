@@ -24,7 +24,7 @@ use windows_sys::Win32::{
         },
     },
     UI::{
-        Controls::{Dialogs::*, EM_SETCUEBANNER, EM_SETLIMITTEXT, EM_SETSEL},
+        Controls::{Dialogs::*, EM_SETCUEBANNER, EM_SETLIMITTEXT, EM_SETSEL, SetScrollInfo},
         HiDpi::*,
         Input::KeyboardAndMouse::*,
         WindowsAndMessaging::*,
@@ -85,6 +85,9 @@ fn rect(x: i32, y: i32, w: i32, h: i32) -> RECT {
         bottom: y + h,
     }
 }
+fn contains(r: RECT, x: i32, y: i32) -> bool {
+    x >= r.left && x < r.right && y >= r.top && y < r.bottom
+}
 
 #[derive(Clone, Copy)]
 struct Fonts {
@@ -97,7 +100,7 @@ struct Fonts {
 unsafe fn search_font(dpi: u32) -> HFONT {
     unsafe {
         CreateFontW(
-            -14 * dpi.max(96) as i32 / 96,
+            -14 * dpi as i32 / 96,
             0,
             0,
             0,
@@ -109,8 +112,8 @@ unsafe fn search_font(dpi: u32) -> HFONT {
             OUT_DEFAULT_PRECIS as u32,
             CLIP_DEFAULT_PRECIS as u32,
             CLEARTYPE_QUALITY as u32,
-            DEFAULT_PITCH as u32,
-            wide("Segoe UI").as_ptr(),
+            FIXED_PITCH as u32 | FF_MODERN as u32,
+            wide("Consolas").as_ptr(),
         )
     }
 }
@@ -132,8 +135,8 @@ impl Fonts {
                     OUT_DEFAULT_PRECIS as u32,
                     CLIP_DEFAULT_PRECIS as u32,
                     CLEARTYPE_QUALITY as u32,
-                    DEFAULT_PITCH as u32,
-                    wide("Segoe UI").as_ptr(),
+                    FIXED_PITCH as u32 | FF_MODERN as u32,
+                    wide("Consolas").as_ptr(),
                 )
             }
         }
@@ -286,6 +289,9 @@ enum Action {
     Metric,
     Range(u32),
     Select(usize),
+    Parent(ProcessKey),
+    TimeZoom(bool),
+    UiZoom(i32),
 }
 
 struct App {
@@ -320,8 +326,15 @@ struct App {
     width: i32,
     height: i32,
     dpi: u32,
+    ui_zoom: u32,
+    viewport: Viewport,
+    layout_busy: bool,
+    font_scale: u32,
+    wheel_delta: i32,
+    wheel_mode: u8,
     hits: Vec<(RECT, Action)>,
     graph_rect: RECT,
+    comparison_rect: RECT,
     pie: Vec<(f64, f64, Option<Selection>)>,
     pie_circle: (i32, i32, i32),
     hover: Option<(i32, i32)>,
@@ -330,6 +343,7 @@ struct App {
     smoke_paused_points: usize,
     smoke_paused_at: u32,
     smoke_failure: Option<String>,
+    smoke_native_done: bool,
     launched: Instant,
     buffer: HDC,
     bitmap: HBITMAP,
@@ -391,8 +405,15 @@ impl App {
                 width: 1260,
                 height: 890,
                 dpi: 96,
+                ui_zoom: 100,
+                viewport: Viewport::new(1260, 890, 96, 100, 0, 0),
+                layout_busy: false,
+                font_scale: 96,
+                wheel_delta: 0,
+                wheel_mode: 0,
                 hits: Vec::new(),
                 graph_rect: rect(0, 0, 0, 0),
+                comparison_rect: rect(0, 0, 0, 0),
                 pie: Vec::new(),
                 pie_circle: (0, 0, 0),
                 hover: None,
@@ -401,6 +422,7 @@ impl App {
                 smoke_paused_points: 0,
                 smoke_paused_at: 0,
                 smoke_failure: None,
+                smoke_native_done: false,
                 launched,
                 buffer: null_mut(),
                 bitmap: null_mut(),
@@ -470,6 +492,7 @@ impl App {
             .position(|(start, end, target)| target.is_some() && angle >= *start && angle < *end)
     }
     fn action(&mut self, hwnd: HWND, action: Action) {
+        let mut reveal = None;
         match action {
             Action::Pause => {
                 let paused = !self.pause.load(Ordering::Relaxed);
@@ -531,13 +554,56 @@ impl App {
                 self.comparison_ready = false;
             }
             Action::Range(range) => self.range = range,
+            Action::TimeZoom(inward) => self.range = zoom_time(self.range, inward),
+            Action::UiZoom(direction) => {
+                self.ui_zoom = zoom_interface(self.ui_zoom, direction);
+                self.hover = None;
+                unsafe {
+                    PostMessageW(hwnd, WM_APP + 2, 0, 0);
+                }
+            }
             Action::Select(index) => {
                 if let Some(row) = self.rows.get(index) {
                     self.selection = Some(row.selection.clone());
                 }
             }
+            Action::Parent(child) => {
+                if let Some(parent) = self.history.parent_target(child) {
+                    self.grouping = Grouping::Process;
+                    self.comparison_ready = false;
+                    self.scope = None;
+                    self.query.clear();
+                    self.inactive = true;
+                    self.selection = Some(Selection::Process(parent));
+                    reveal = Some(parent);
+                    // Clear the native edit after this borrow ends: SetWindowTextW
+                    // synchronously reenters the window's WM_COMMAND handler.
+                    unsafe {
+                        PostMessageW(hwnd, WM_APP + 3, 0, 0);
+                    }
+                } else {
+                    self.notice = "Parent is outside retained history or unavailable".into();
+                }
+            }
         }
         self.refresh_rows();
+        if let Some(parent) = reveal
+            && let Some(index) = self
+                .rows
+                .iter()
+                .position(|row| row.selection == Selection::Process(parent))
+        {
+            self.scroll = index
+                .saturating_sub(self.visible_rows() / 2)
+                .min(self.rows.len().saturating_sub(self.visible_rows()));
+            let row_y = 142 + (index - self.scroll) as i32 * 32;
+            self.viewport.x = 0;
+            self.viewport.y = (row_y - self.viewport.page_height / 2)
+                .clamp(0, self.height - self.viewport.page_height);
+            unsafe {
+                PostMessageW(hwnd, WM_APP + 2, 0, 0);
+            }
+        }
         unsafe {
             InvalidateRect(hwnd, null(), 0);
         }
@@ -933,7 +999,8 @@ impl App {
             INK,
             false,
         );
-        let chart = rect(rx + 56, 113, rw - 72, 68);
+        let chart = rect(rx + 88, 113, rw - 104, 68);
+        self.comparison_rect = chart;
         let xy = |at: u32, value: u64| POINT {
             x: chart.left
                 + (at.saturating_sub(plot.start) as f64 / (plot.end - plot.start).max(1) as f64
@@ -951,7 +1018,7 @@ impl App {
             c.text(
                 rx + 2,
                 y - 8,
-                49,
+                80,
                 17,
                 &bytes(plot.maximum * (2 - i) as u64 / 2),
                 c.fonts.small,
@@ -976,11 +1043,11 @@ impl App {
             };
             let y = 202 + index as i32 * 14;
             c.circle(rx + 16, y + 7, 3, COLORS[index]);
-            c.text(rx + 26, y, rw - 120, 14, &label, c.fonts.small, INK, false);
+            c.text(rx + 26, y, rw - 132, 14, &label, c.fonts.small, INK, false);
             c.text(
-                rx + rw - 90,
+                rx + rw - 102,
                 y,
-                78,
+                90,
                 14,
                 &series
                     .current
@@ -1030,7 +1097,10 @@ impl App {
             272,
             rw - 24,
             14,
-            &format!("Pinned · Refresh to update · {}m window", self.range / 60),
+            &format!(
+                "Pinned · Refresh · {} window",
+                window_label(Some(self.range))
+            ),
             c.fonts.small,
             MUTED,
             false,
@@ -1045,22 +1115,23 @@ impl App {
         let rw = w - rx - 16;
         self.hits.clear();
         self.pie.clear();
+        self.comparison_rect = rect(0, 0, 0, 0);
         c.fill(rect(0, 0, w, h), BG);
         c.text(18, 7, 145, 30, "Mem Map", f.title, INK, false);
         let used = self.history.total.saturating_sub(self.history.available);
         c.text(
             177,
             10,
-            w - 535,
+            w - 640,
             25,
             &format!(
-                "RAM {} / {} ({:.0}%)  ·  Available {}",
+                "RAM {} / {} ({:.0}%) · Free {}",
                 bytes(used),
                 bytes(self.history.total),
                 used as f64 * 100.0 / self.history.total.max(1) as f64,
                 bytes(self.history.available)
             ),
-            f.normal,
+            f.small,
             INK,
             false,
         );
@@ -1085,6 +1156,20 @@ impl App {
             false,
         );
         let paused = self.pause.load(Ordering::Relaxed);
+        c.text(w - 451, 14, 30, 25, "UI", f.small, MUTED, false);
+        for (x, width, label, direction) in [
+            (w - 419, 30, "−".to_owned(), -1),
+            (w - 385, 65, format!("{}%", self.ui_zoom), 0),
+            (w - 316, 30, "+".to_owned(), 1),
+        ] {
+            self.hit(
+                c,
+                rect(x, 14, width, 25),
+                &label,
+                false,
+                Action::UiZoom(direction),
+            );
+        }
         c.text(
             w - 385,
             44,
@@ -1285,7 +1370,7 @@ impl App {
                 13,
                 &path,
                 f.small,
-                MUTED,
+                if matches!(row.selection, Selection::Process(key) if self.history.parent_target(key).is_some()) { ACCENT } else { MUTED },
                 false,
             );
             let pid = if let Selection::Process(key) = &row.selection {
@@ -1353,6 +1438,14 @@ impl App {
             c.fill(rect(27, y + 31, table_right - 40, 1), rgb(237, 241, 243));
             self.hits
                 .push((rect(17, y, table_right - 18, 32), Action::Select(index)));
+            if let Selection::Process(child) = row.selection
+                && self.history.parent_target(child).is_some()
+            {
+                self.hits.push((
+                    rect(28, y + 17, table_right - 545, 13),
+                    Action::Parent(child),
+                ));
+            }
         }
         if self.rows.is_empty() {
             c.text(
@@ -1576,6 +1669,7 @@ impl App {
             MUTED,
         );
         if let Some(track) = single {
+            let navigable = self.history.parent_target(track.key).is_some();
             c.text(
                 rx + 12,
                 399,
@@ -1583,9 +1677,13 @@ impl App {
                 16,
                 &format!("Parent: {}", track.parent_description()),
                 f.small,
-                MUTED,
+                if navigable { ACCENT } else { MUTED },
                 false,
             );
+            if navigable {
+                self.hits
+                    .push((rect(rx + 12, 399, rw - 24, 16), Action::Parent(track.key)));
+            }
         }
         let points = self
             .selection
@@ -1673,6 +1771,30 @@ impl App {
             self.commit,
             Action::Metric,
         );
+        self.hit(
+            c,
+            rect(rx + 98, 547, 33, 24),
+            "−",
+            false,
+            Action::TimeZoom(false),
+        );
+        self.hit(
+            c,
+            rect(rx + 135, 547, 33, 24),
+            "+",
+            false,
+            Action::TimeZoom(true),
+        );
+        c.text(
+            rx + 172,
+            547,
+            38,
+            24,
+            &window_label(Some(self.range)),
+            f.small,
+            MUTED,
+            false,
+        );
         for (i, (secs, label)) in [(300, "5m"), (900, "15m"), (1800, "30m")]
             .iter()
             .enumerate()
@@ -1685,7 +1807,7 @@ impl App {
                 Action::Range(*secs),
             );
         }
-        let chart = rect(rx + 58, 592, rw - 74, h - 668);
+        let chart = rect(rx + 88, 592, rw - 104, h - 668);
         self.graph_rect = chart;
         let max = (peak as f64 * 1.1).max(10.0 * 1024.0 * 1024.0) as u64;
         let end_time = self.history.at.max(1);
@@ -1707,7 +1829,7 @@ impl App {
             c.text(
                 rx + 2,
                 y - 8,
-                51,
+                80,
                 17,
                 &bytes(max * (3 - i) as u64 / 3),
                 f.small,
@@ -1802,7 +1924,7 @@ impl App {
             h - 53,
             rw - 24,
             16,
-            "Session history · gaps mean unavailable",
+            "Wheel: time zoom · Ctrl+wheel: UI zoom",
             f.small,
             MUTED,
             false,
@@ -1874,6 +1996,9 @@ impl App {
         }
     }
     unsafe fn screenshot(&mut self, path: &std::path::Path) -> io::Result<()> {
+        unsafe { self.screenshot_view(path, Viewport::new(1260, 890, 96, 100, 0, 0)) }
+    }
+    unsafe fn screenshot_view(&mut self, path: &std::path::Path, v: Viewport) -> io::Result<()> {
         unsafe {
             let width = 1260;
             let height = 890;
@@ -1899,9 +2024,16 @@ impl App {
             }
             let old = SelectObject(mem, bmp);
             let old_size = (self.width, self.height);
-            self.width = width;
-            self.height = height;
+            self.width = v.width;
+            self.height = v.height;
+            let saved = SaveDC(mem);
+            SetMapMode(mem, MM_ANISOTROPIC);
+            SetWindowExtEx(mem, 96, 96, null_mut());
+            SetViewportExtEx(mem, v.scale as i32, v.scale as i32, null_mut());
+            let (x, y) = v.physical(0, 0);
+            SetViewportOrgEx(mem, x, y, null_mut());
             self.render(mem);
+            RestoreDC(mem, saved);
             GdiFlush();
             let result = (|| {
                 let mut file = BufWriter::new(File::create(path)?);
@@ -1993,6 +2125,293 @@ unsafe fn export_dialog(hwnd: HWND, ptr: *mut App) {
     }
 }
 
+// Layout APIs synchronously dispatch window messages. Use the owning raw pointer,
+// with no App borrow held across those calls, and suppress nested layout.
+unsafe fn layout_window(hwnd: HWND, ptr: *mut App) {
+    unsafe {
+        if (*ptr).layout_busy {
+            return;
+        }
+        (*ptr).layout_busy = true;
+        for _ in 0..3 {
+            let mut r: RECT = zeroed();
+            GetClientRect(hwnd, &mut r);
+            let v = Viewport::new(
+                r.right,
+                r.bottom,
+                (*ptr).dpi,
+                (*ptr).ui_zoom,
+                (*ptr).viewport.x,
+                (*ptr).viewport.y,
+            );
+            (*ptr).viewport = v;
+            for (bar, length, page, pos) in [
+                (SB_HORZ, v.width, v.page_width, v.x),
+                (SB_VERT, v.height, v.page_height, v.y),
+            ] {
+                let info = SCROLLINFO {
+                    cbSize: size_of::<SCROLLINFO>() as u32,
+                    fMask: SIF_RANGE | SIF_PAGE | SIF_POS,
+                    nMin: 0,
+                    nMax: length - 1,
+                    nPage: page as u32,
+                    nPos: pos,
+                    nTrackPos: 0,
+                };
+                SetScrollInfo(hwnd, bar, &info, 1);
+            }
+        }
+        let v = (*ptr).viewport;
+        (*ptr).width = v.width;
+        (*ptr).height = v.height;
+        if (*ptr).font_scale != v.scale || (*ptr).search_font.is_null() {
+            let old = (*ptr).search_font;
+            (*ptr).search_font = search_font(v.scale);
+            (*ptr).font_scale = v.scale;
+            SendMessageW((*ptr).search, WM_SETFONT, (*ptr).search_font as usize, 1);
+            SendMessageW(
+                (*ptr).growth_input,
+                WM_SETFONT,
+                (*ptr).search_font as usize,
+                1,
+            );
+            DeleteObject(old);
+        }
+        for (control, x, y, w, h) in [
+            ((*ptr).search, 540, 71, (v.width - 948).max(120), 25),
+            ((*ptr).growth_input, v.width - 265, 44, 150, 180),
+        ] {
+            let (x, y) = v.physical(x, y);
+            MoveWindow(
+                control,
+                x,
+                y,
+                w * v.scale as i32 / 96,
+                h * v.scale as i32 / 96,
+                1,
+            );
+        }
+        (*ptr).refresh_rows();
+        (*ptr).layout_busy = false;
+        InvalidateRect(hwnd, null(), 0);
+    }
+}
+
+// In-process native contract exercise, outside an App borrow: drive the actual
+// window procedure and child controls. This is not external mouse/keyboard QA.
+unsafe fn smoke_native(hwnd: HWND, ptr: *mut App) {
+    unsafe {
+        if (*ptr).smoke.is_none() || (*ptr).smoke_step != 1 || (*ptr).smoke_native_done {
+            return;
+        }
+        (*ptr).smoke_native_done = true;
+        let dir = (*ptr).smoke.clone().unwrap();
+        let dc = GetDC(hwnd);
+        let mut monospaced = !dc.is_null();
+        if !dc.is_null() {
+            for font in [
+                (*ptr).fonts.normal,
+                (*ptr).fonts.small,
+                (*ptr).fonts.bold,
+                (*ptr).fonts.title,
+                (*ptr).fonts.number,
+                (*ptr).search_font,
+            ] {
+                let old = SelectObject(dc, font);
+                let mut narrow: SIZE = zeroed();
+                let mut broad: SIZE = zeroed();
+                monospaced &= !font.is_null()
+                    && GetTextExtentPoint32W(dc, wide("iiii").as_ptr(), 4, &mut narrow) != 0
+                    && GetTextExtentPoint32W(dc, wide("WWWW").as_ptr(), 4, &mut broad) != 0
+                    && narrow.cx > 0
+                    && narrow.cx == broad.cx;
+                SelectObject(dc, old);
+            }
+        }
+        (*ptr).smoke_assert(monospaced, "actual equal-width display and edit fonts");
+        let original = (
+            (*ptr).grouping,
+            (*ptr).scope.clone(),
+            (*ptr).selection.clone(),
+            (*ptr).inactive,
+            (*ptr).overview,
+        );
+        (*ptr).action(hwnd, Action::Group(Grouping::Process));
+        let candidate = (*ptr).history.tracks.keys().find_map(|child| {
+            (*ptr)
+                .history
+                .parent_target(*child)
+                .map(|parent| (*child, parent))
+        });
+        if let Some((child, parent)) = candidate {
+            (*ptr).selection = Some(Selection::Process(child));
+            let index = (*ptr)
+                .rows
+                .iter()
+                .position(|r| r.selection == Selection::Process(child))
+                .unwrap();
+            (*ptr).scroll = index.min((*ptr).rows.len().saturating_sub((*ptr).visible_rows()));
+            if (*ptr).ensure_buffer(dc, 1260, 890) {
+                (*ptr).render((*ptr).buffer);
+            }
+            let link = (*ptr).hits.iter().rev().find_map(|(r, a)| match a {
+                Action::Parent(k) if *k == child => Some(*r),
+                _ => None,
+            });
+            (*ptr).smoke_assert(link.is_some(), "parent is a rendered clickable control");
+            if let Some(r) = link {
+                // Force conflicting filters after hit construction; navigation must
+                // reveal the exact captured parent and scroll its row into view.
+                SetWindowTextW((*ptr).search, wide("no process can match this").as_ptr());
+                (*ptr).scope = Some(Selection::Name("no scope".into()));
+                (*ptr).inactive = false;
+                let (x, y) = (*ptr)
+                    .viewport
+                    .physical((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+                SendMessageW(
+                    hwnd,
+                    WM_LBUTTONDOWN,
+                    0,
+                    ((y as u32 & 0xffff) << 16 | (x as u32 & 0xffff)) as isize,
+                );
+                SendMessageW(hwnd, WM_APP + 3, 0, 0);
+                (*ptr).smoke_assert(
+                    (*ptr).selection == Some(Selection::Process(parent))
+                        && (*ptr).grouping == Grouping::Process
+                        && String::is_empty(&(*ptr).query)
+                        && (*ptr).scope.is_none()
+                        && (*ptr).inactive,
+                    "native parent click reveals exact instance through filters",
+                );
+                let visible = (*ptr)
+                    .rows
+                    .iter()
+                    .position(|r| r.selection == Selection::Process(parent))
+                    .is_some_and(|i| {
+                        i >= (*ptr).scroll && i < (*ptr).scroll + (*ptr).visible_rows()
+                    });
+                (*ptr).smoke_assert(visible, "parent row scrolled into view");
+                let result = (*ptr).screenshot(&dir.join("parent-navigation.bmp"));
+                (*ptr).smoke_assert(result.is_ok(), "parent navigation screenshot");
+            }
+        } else {
+            (*ptr).smoke_assert(
+                false,
+                "native parent navigation requires an observed parent",
+            );
+        }
+        let points = (*ptr).history.times.len();
+        let growth = (*ptr).growth_window;
+        let pinned: Vec<_> = (*ptr)
+            .comparison
+            .members
+            .iter()
+            .map(|m| m.selection.clone())
+            .collect();
+        (*ptr).action(hwnd, Action::Range(1800));
+        (*ptr).render((*ptr).buffer);
+        let chart = (*ptr).graph_rect;
+        let (x, y) = (*ptr).viewport.physical(chart.left + 10, chart.top + 10);
+        let mut pt = POINT { x, y };
+        ClientToScreen(hwnd, &mut pt);
+        let wheel_point = ((pt.y as u32 & 0xffff) << 16 | (pt.x as u32 & 0xffff)) as isize;
+        SendMessageW(hwnd, WM_MOUSEWHEEL, 120 << 16, wheel_point);
+        (*ptr).smoke_assert((*ptr).range == 900, "native chart wheel zoom");
+        SendMessageW(hwnd, WM_MOUSEWHEEL, (120 << 16) | 8, wheel_point);
+        SendMessageW(hwnd, WM_APP + 2, 0, 0);
+        (*ptr).smoke_assert(
+            (*ptr).ui_zoom == 125 && (*ptr).viewport.scale == (*ptr).dpi.max(96) * 125 / 100,
+            "native Ctrl wheel UI zoom",
+        );
+        for zoom in [75, 125, 200, 100] {
+            (*ptr).ui_zoom = zoom;
+            layout_window(hwnd, ptr);
+            if zoom == 200 {
+                SendMessageW(hwnd, WM_HSCROLL, SB_BOTTOM as usize, 0);
+                SendMessageW(hwnd, WM_VSCROLL, SB_BOTTOM as usize, 0);
+                (*ptr).smoke_assert(
+                    (*ptr).viewport.x > 0 && (*ptr).viewport.y > 0,
+                    "enlarged interface overflow scrollbars",
+                );
+            }
+            let v = (*ptr).viewport;
+            let mut client: RECT = zeroed();
+            GetClientRect(hwnd, &mut client);
+            let expected = Viewport::new(client.right, client.bottom, (*ptr).dpi, zoom, v.x, v.y);
+            (*ptr).smoke_assert(
+                v.page_width == expected.page_width && v.page_height == expected.page_height,
+                "viewport matches final client bounds",
+            );
+            let mut control: RECT = zeroed();
+            GetWindowRect((*ptr).search, &mut control);
+            let mut point = POINT {
+                x: control.left,
+                y: control.top,
+            };
+            ScreenToClient(hwnd, &mut point);
+            let (x, y) = v.physical(540, 71);
+            (*ptr).smoke_assert(
+                point.x == x
+                    && point.y == y
+                    && control.right - control.left
+                        == (v.width - 948).max(120) * v.scale as i32 / 96,
+                "native edit matches scaled and scrolled canvas",
+            );
+            let view = Viewport::new(1260, 890, 96, zoom, v.x, v.y);
+            let result = (*ptr).screenshot_view(&dir.join(format!("zoom-{zoom}.bmp")), view);
+            (*ptr).smoke_assert(result.is_ok(), "scaled renderer screenshot");
+        }
+        let original_dpi = (*ptr).dpi;
+        let mut window: RECT = zeroed();
+        GetWindowRect(hwnd, &mut window);
+        for dpi in [144, 192, original_dpi] {
+            SendMessageW(
+                hwnd,
+                WM_DPICHANGED,
+                ((dpi << 16) | dpi) as usize,
+                (&window as *const RECT) as isize,
+            );
+            let v = (*ptr).viewport;
+            let mut control: RECT = zeroed();
+            GetWindowRect((*ptr).growth_input, &mut control);
+            let mut point = POINT {
+                x: control.left,
+                y: control.top,
+            };
+            ScreenToClient(hwnd, &mut point);
+            let expected = v.physical(v.width - 265, 44);
+            (*ptr).smoke_assert(
+                v.scale == dpi
+                    && point.x == expected.0
+                    && point.y == expected.1
+                    && control.right - control.left == 150 * dpi as i32 / 96,
+                "DPI message rescales native controls with canvas",
+            );
+        }
+        (*ptr).smoke_assert(
+            (*ptr).history.times.len() == points
+                && (*ptr).growth_window == growth
+                && (*ptr)
+                    .comparison
+                    .members
+                    .iter()
+                    .map(|m| &m.selection)
+                    .eq(pinned.iter()),
+            "zoom preserves observations, growth and pinned identities",
+        );
+        (
+            (*ptr).grouping,
+            (*ptr).scope,
+            (*ptr).selection,
+            (*ptr).inactive,
+            (*ptr).overview,
+        ) = original;
+        (*ptr).refresh_rows();
+        (*ptr).render((*ptr).buffer);
+        ReleaseDC(hwnd, dc);
+    }
+}
+
 // SAFETY: Win32 invokes this on the creating thread. App lives in a Box from before
 // CreateWindowEx until after the message loop, and the pointer is installed at WM_NCCREATE.
 unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
@@ -2008,6 +2427,18 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
         match msg {
             m if m == WM_APP + 1 => {
                 export_dialog(hwnd, ptr);
+                0
+            }
+            m if m == WM_APP + 2 => {
+                layout_window(hwnd, ptr);
+                0
+            }
+            m if m == WM_APP + 3 => {
+                // EN_CHANGE resets list scrolling even when the controller has
+                // already cleared its query. Preserve the revealed parent row.
+                let scroll = (*ptr).scroll;
+                SetWindowTextW((*ptr).search, wide("").as_ptr());
+                (*ptr).scroll = scroll.min((*ptr).rows.len().saturating_sub((*ptr).visible_rows()));
                 0
             }
             WM_CREATE => {
@@ -2058,55 +2489,20 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                 SendMessageW(growth, CB_SETCURSEL, 1, 0);
                 SendMessageW(growth, CB_LIMITTEXT, 32, 0);
                 SetTimer(hwnd, 1, 250, None);
+                layout_window(hwnd, ptr);
                 0
             }
             WM_GETMINMAXINFO => {
                 let info = &mut *(lp as *mut MINMAXINFO);
-                let dpi = GetDpiForWindow(hwnd).max(96) as i32;
-                info.ptMinTrackSize = POINT {
-                    x: 1100 * dpi / 96,
-                    y: 790 * dpi / 96,
-                };
+                info.ptMinTrackSize = POINT { x: 640, y: 480 };
                 0
             }
             WM_SIZE => {
-                let mut r: RECT = zeroed();
-                GetClientRect(hwnd, &mut r);
-                let dpi = (*ptr).dpi.max(96) as i32;
-                (*ptr).width = r.right * 96 / dpi;
-                (*ptr).height = r.bottom * 96 / dpi;
-                MoveWindow(
-                    (*ptr).search,
-                    540 * dpi / 96,
-                    71 * dpi / 96,
-                    ((*ptr).width - 948).max(120) * dpi / 96,
-                    25 * dpi / 96,
-                    1,
-                );
-                MoveWindow(
-                    (*ptr).growth_input,
-                    ((*ptr).width - 265) * dpi / 96,
-                    44 * dpi / 96,
-                    150 * dpi / 96,
-                    180 * dpi / 96,
-                    1,
-                );
-                (*ptr).refresh_rows();
-                InvalidateRect(hwnd, null(), 0);
+                layout_window(hwnd, ptr);
                 0
             }
             WM_DPICHANGED => {
                 (*ptr).dpi = (wp & 0xffff) as u32;
-                let old = (*ptr).search_font;
-                (*ptr).search_font = search_font((*ptr).dpi);
-                SendMessageW((*ptr).search, WM_SETFONT, (*ptr).search_font as usize, 1);
-                SendMessageW(
-                    (*ptr).growth_input,
-                    WM_SETFONT,
-                    (*ptr).search_font as usize,
-                    1,
-                );
-                DeleteObject(old);
                 let r = &*(lp as *const RECT);
                 SetWindowPos(
                     hwnd,
@@ -2117,6 +2513,33 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                     r.bottom - r.top,
                     SWP_NOZORDER | SWP_NOACTIVATE,
                 );
+                layout_window(hwnd, ptr);
+                0
+            }
+            WM_HSCROLL | WM_VSCROLL => {
+                let horizontal = msg == WM_HSCROLL;
+                let bar = if horizontal { SB_HORZ } else { SB_VERT };
+                let mut info: SCROLLINFO = zeroed();
+                info.cbSize = size_of::<SCROLLINFO>() as u32;
+                info.fMask = SIF_ALL;
+                if GetScrollInfo(hwnd, bar, &mut info) != 0 {
+                    let next = match (wp & 0xffff) as i32 {
+                        SB_LINEUP => info.nPos - 32,
+                        SB_LINEDOWN => info.nPos + 32,
+                        SB_PAGEUP => info.nPos - info.nPage as i32,
+                        SB_PAGEDOWN => info.nPos + info.nPage as i32,
+                        SB_THUMBTRACK | SB_THUMBPOSITION => info.nTrackPos,
+                        SB_TOP => info.nMin,
+                        SB_BOTTOM => info.nMax,
+                        _ => info.nPos,
+                    };
+                    if horizontal {
+                        (*ptr).viewport.x = next;
+                    } else {
+                        (*ptr).viewport.y = next;
+                    }
+                    layout_window(hwnd, ptr);
+                }
                 0
             }
             WM_COMMAND => {
@@ -2158,12 +2581,13 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
             }
             WM_TIMER => {
                 (*ptr).tick(hwnd);
+                smoke_native(hwnd, ptr);
                 0
             }
             WM_LBUTTONDOWN => {
-                let dpi = (*ptr).dpi.max(96) as i32;
-                let x = (lp as i16 as i32) * 96 / dpi;
-                let y = ((lp >> 16) as i16 as i32) * 96 / dpi;
+                let (x, y) = (*ptr)
+                    .viewport
+                    .point(lp as i16 as i32, (lp >> 16) as i16 as i32);
                 SetFocus(hwnd);
                 let app = &mut *ptr;
                 if let Some((_, action)) = app
@@ -2180,9 +2604,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                 0
             }
             WM_LBUTTONDBLCLK => {
-                let dpi = (*ptr).dpi.max(96) as i32;
-                let x = (lp as i16 as i32) * 96 / dpi;
-                let y = ((lp >> 16) as i16 as i32) * 96 / dpi;
+                let (x, y) = (*ptr)
+                    .viewport
+                    .point(lp as i16 as i32, (lp >> 16) as i16 as i32);
                 let app = &mut *ptr;
                 if let Some((_, action)) = app
                     .hits
@@ -2191,6 +2615,9 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                     .find(|(r, _)| x >= r.left && x < r.right && y >= r.top && y < r.bottom)
                     .copied()
                 {
+                    if matches!(action, Action::Parent(_)) {
+                        return 0;
+                    }
                     app.action(
                         hwnd,
                         if matches!(action, Action::Select(_)) {
@@ -2203,24 +2630,46 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                 0
             }
             WM_MOUSEWHEEL => {
+                let mut point = POINT {
+                    x: lp as i16 as i32,
+                    y: (lp >> 16) as i16 as i32,
+                };
+                ScreenToClient(hwnd, &mut point);
                 let app = &mut *ptr;
-                let step = (wp >> 16) as i16 as i32;
-                if step > 0 {
-                    app.scroll = app.scroll.saturating_sub(3);
+                let (x, y) = app.viewport.point(point.x, point.y);
+                let mode = if wp & 0x0008 != 0 {
+                    2
+                } else if contains(app.graph_rect, x, y) || contains(app.comparison_rect, x, y) {
+                    1
                 } else {
-                    app.scroll =
-                        (app.scroll + 3).min(app.rows.len().saturating_sub(app.visible_rows()));
+                    0
+                };
+                if mode != app.wheel_mode {
+                    app.wheel_delta = 0;
+                    app.wheel_mode = mode;
+                }
+                app.wheel_delta += (wp >> 16) as i16 as i32;
+                while app.wheel_delta.abs() >= 120 {
+                    let step = app.wheel_delta.signum();
+                    app.wheel_delta -= step * 120;
+                    match mode {
+                        2 => app.action(hwnd, Action::UiZoom(step)),
+                        1 => app.action(hwnd, Action::TimeZoom(step > 0)),
+                        _ if step > 0 => app.scroll = app.scroll.saturating_sub(3),
+                        _ => {
+                            app.scroll = (app.scroll + 3)
+                                .min(app.rows.len().saturating_sub(app.visible_rows()))
+                        }
+                    }
                 }
                 InvalidateRect(hwnd, null(), 0);
                 0
             }
             WM_MOUSEMOVE => {
                 let app = &mut *ptr;
-                let dpi = app.dpi.max(96) as i32;
-                let next = (
-                    (lp as i16 as i32) * 96 / dpi,
-                    ((lp >> 16) as i16 as i32) * 96 / dpi,
-                );
+                let next = app
+                    .viewport
+                    .point(lp as i16 as i32, (lp >> 16) as i16 as i32);
                 let inside = |(x, y): (i32, i32)| {
                     x >= app.graph_rect.left
                         && x <= app.graph_rect.right
@@ -2229,14 +2678,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                 };
                 let dirty = inside(next) || app.hover.is_some_and(inside);
                 app.hover = if inside(next) { Some(next) } else { None };
-                let r = rect(
-                    app.graph_rect.left * dpi / 96,
-                    app.graph_rect.top * dpi / 96,
-                    (app.graph_rect.right - app.graph_rect.left) * dpi / 96,
-                    (app.graph_rect.bottom - app.graph_rect.top) * dpi / 96,
-                );
                 if dirty {
-                    InvalidateRect(hwnd, &r, 0);
+                    InvalidateRect(hwnd, null(), 0);
                 }
                 0
             }
@@ -2255,6 +2698,12 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                     VK_F5 => Some(Action::Metric),
                     VK_F6 => Some(Action::Overview(!app.overview)),
                     VK_F7 => Some(Action::RefreshComparison),
+                    VK_F8 => match app.selection {
+                        Some(Selection::Process(key)) => Some(Action::Parent(key)),
+                        _ => None,
+                    },
+                    VK_OEM_PLUS | VK_ADD => Some(Action::TimeZoom(true)),
+                    VK_OEM_MINUS | VK_SUBTRACT => Some(Action::TimeZoom(false)),
                     VK_RETURN => Some(Action::Drill),
                     VK_BACK => Some(Action::Back),
                     0x31 => Some(Action::Range(300)),
@@ -2295,7 +2744,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                     let saved = SaveDC(app.buffer);
                     SetMapMode(app.buffer, MM_ANISOTROPIC);
                     SetWindowExtEx(app.buffer, 96, 96, null_mut());
-                    SetViewportExtEx(app.buffer, app.dpi as i32, app.dpi as i32, null_mut());
+                    let v = app.viewport;
+                    SetViewportExtEx(app.buffer, v.scale as i32, v.scale as i32, null_mut());
+                    let (x, y) = v.physical(0, 0);
+                    SetViewportOrgEx(app.buffer, x, y, null_mut());
                     app.render(app.buffer);
                     RestoreDC(app.buffer, saved);
                     BitBlt(dc, 0, 0, r.right, r.bottom, app.buffer, 0, 0, SRCCOPY);
@@ -2353,8 +2805,8 @@ pub fn run() -> io::Result<()> {
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
-            wide("Mem Map — Parent process names").as_ptr(),
-            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+            wide("Mem Map — Navigation and zoom").as_ptr(),
+            WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_HSCROLL | WS_VSCROLL,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             1260 * dpi / 96,
@@ -2380,7 +2832,35 @@ pub fn run() -> io::Result<()> {
             if result < 0 {
                 return Err(io::Error::last_os_error());
             }
+            // Native edits/combos can consume wheel input while focused. Route
+            // interface zoom globally, and ordinary wheel input outside the
+            // growth field/list, through the same canvas hit coordinates.
+            if message.message == WM_MOUSEWHEEL && message.hwnd != hwnd {
+                let x = message.lParam as i16 as i32;
+                let y = (message.lParam >> 16) as i16 as i32;
+                let mut growth: RECT = zeroed();
+                GetWindowRect(app.growth_input, &mut growth);
+                if message.wParam & 0x0008 != 0
+                    || (SendMessageW(app.growth_input, CB_GETDROPPEDSTATE, 0, 0) == 0
+                        && !contains(growth, x, y))
+                {
+                    SendMessageW(hwnd, WM_MOUSEWHEEL, message.wParam, message.lParam);
+                    continue;
+                }
+            }
             if message.message == WM_KEYDOWN {
+                if GetKeyState(VK_CONTROL as i32) < 0 {
+                    let direction = match message.wParam as u16 {
+                        VK_OEM_PLUS | VK_ADD => Some(1),
+                        VK_OEM_MINUS | VK_SUBTRACT => Some(-1),
+                        0x30 | VK_NUMPAD0 => Some(0),
+                        _ => None,
+                    };
+                    if let Some(direction) = direction {
+                        app.action(hwnd, Action::UiZoom(direction));
+                        continue;
+                    }
+                }
                 if message.wParam == 0x46 && GetKeyState(VK_CONTROL as i32) < 0 {
                     SetFocus(app.search);
                     SendMessageW(app.search, EM_SETSEL, 0, -1);

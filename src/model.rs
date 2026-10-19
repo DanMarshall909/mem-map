@@ -34,6 +34,66 @@ pub const HISTORY_SECONDS: u32 = 30 * 60;
 pub const MAX_POINTS: usize = 901;
 pub const MAX_TRACKS: usize = 1024;
 
+pub fn zoom_time(seconds: u32, inward: bool) -> u32 {
+    const STEPS: [u32; 7] = [30, 60, 120, 300, 600, 900, HISTORY_SECONDS];
+    if inward {
+        STEPS.into_iter().rev().find(|s| *s < seconds).unwrap_or(30)
+    } else {
+        STEPS
+            .into_iter()
+            .find(|s| *s > seconds)
+            .unwrap_or(HISTORY_SECONDS)
+    }
+}
+pub fn zoom_interface(percent: u32, direction: i32) -> u32 {
+    if direction == 0 {
+        100
+    } else {
+        (percent as i32 + direction.signum() * 25).clamp(75, 200) as u32
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Viewport {
+    pub scale: u32,
+    pub width: i32,
+    pub height: i32,
+    pub page_width: i32,
+    pub page_height: i32,
+    pub x: i32,
+    pub y: i32,
+}
+impl Viewport {
+    pub fn new(width: i32, height: i32, dpi: u32, zoom: u32, x: i32, y: i32) -> Self {
+        let scale = dpi.max(96) * zoom.clamp(75, 200) / 100;
+        let page_width = (width.max(0) * 96 / scale as i32).max(1);
+        let page_height = (height.max(0) * 96 / scale as i32).max(1);
+        let width = page_width.max(1100);
+        let height = page_height.max(790);
+        Self {
+            scale,
+            width,
+            height,
+            page_width,
+            page_height,
+            x: x.clamp(0, width - page_width),
+            y: y.clamp(0, height - page_height),
+        }
+    }
+    pub fn point(&self, x: i32, y: i32) -> (i32, i32) {
+        (
+            x * 96 / self.scale as i32 + self.x,
+            y * 96 / self.scale as i32 + self.y,
+        )
+    }
+    pub fn physical(&self, x: i32, y: i32) -> (i32, i32) {
+        (
+            (x - self.x) * self.scale as i32 / 96,
+            (y - self.y) * self.scale as i32 / 96,
+        )
+    }
+}
+
 pub fn parse_growth_window(text: &str) -> Result<Option<u32>, &'static str> {
     let error = "Use 1s–30m or Session";
     let text: String = text
@@ -103,6 +163,7 @@ pub struct Track {
     pub parent_pid: u32,
     pub working_set: u64,
     pub parent_name: Option<String>,
+    pub parent_key: Option<ProcessKey>,
 }
 
 impl Track {
@@ -244,6 +305,12 @@ pub struct History {
 }
 
 impl History {
+    pub fn parent_target(&self, child: ProcessKey) -> Option<ProcessKey> {
+        self.tracks
+            .get(&child)
+            .and_then(|track| track.parent_key)
+            .filter(|parent| self.tracks.contains_key(parent))
+    }
     pub fn observe(&mut self, mut snapshot: Snapshot) {
         if self.times.back().is_some_and(|last| snapshot.at <= *last) {
             return;
@@ -357,12 +424,15 @@ impl History {
                 parent_pid: process.parent_pid,
                 working_set: process.working_set,
                 parent_name: None,
+                parent_key: None,
             });
-            if track.parent_name.is_none() {
-                track.parent_name = parents
+            if track.parent_name.is_none()
+                && let Some((key, _, _, name)) = parents
                     .get(&track.parent_pid)
                     .filter(|(parent, _, _, _)| parent.created < track.key.created)
-                    .map(|(_, _, _, name)| name.clone());
+            {
+                track.parent_name = Some(name.clone());
+                track.parent_key = Some(*key);
             }
             track.points.push_back(point);
             while track.points.len() > MAX_POINTS
@@ -554,6 +624,46 @@ impl History {
 mod tests {
     use super::*;
     #[test]
+    fn zoom_is_bounded_and_scaled_scrolling_preserves_coordinate_identity() {
+        assert_eq!(zoom_time(1800, true), 900);
+        assert_eq!(zoom_time(900, true), 600);
+        assert_eq!(zoom_time(500, true), 300);
+        assert_eq!(zoom_time(500, false), 600);
+        assert_eq!(zoom_time(30, true), 30);
+        assert_eq!(zoom_time(1800, false), 1800);
+        assert_eq!(zoom_interface(100, 1), 125);
+        assert_eq!(zoom_interface(200, 1), 200);
+        assert_eq!(zoom_interface(75, -1), 75);
+        assert_eq!(zoom_interface(175, 0), 100);
+        let normal = Viewport::new(1260, 890, 96, 100, 999, 999);
+        assert_eq!(
+            (normal.width, normal.height, normal.x, normal.y),
+            (1260, 890, 0, 0)
+        );
+        let enlarged = Viewport::new(1260, 890, 96, 200, 999, 999);
+        assert_eq!(
+            (
+                enlarged.scale,
+                enlarged.width,
+                enlarged.height,
+                enlarged.page_width,
+                enlarged.page_height,
+                enlarged.x,
+                enlarged.y
+            ),
+            (192, 1100, 790, 630, 445, 470, 345)
+        );
+        assert_eq!(enlarged.point(100, 50), (520, 370));
+        assert_eq!(enlarged.physical(520, 370), (100, 50));
+        let high_dpi = Viewport::new(1260, 890, 144, 125, 999, 999);
+        assert_eq!(high_dpi.scale, 180);
+        let physical = high_dpi.physical(500, 400);
+        let logical = high_dpi.point(physical.0, physical.1);
+        assert!((logical.0 - 500).abs() <= 1 && (logical.1 - 400).abs() <= 1);
+        let zero = Viewport::new(0, 0, 96, 100, -100, -100);
+        assert!(zero.page_width > 0 && zero.page_height > 0 && zero.x == 0 && zero.y == 0);
+    }
+    #[test]
     fn parent_names_are_retained_after_exit_and_never_replaced_by_reused_pids() {
         let mut parent = sample(10, 100, 500);
         parent.name = "ChatGPT.exe".into();
@@ -602,6 +712,45 @@ mod tests {
                 .map(|r| r.selection.clone())
                 .collect::<Vec<_>>(),
             vec![Selection::Process(child.key)]
+        );
+    }
+    #[test]
+    fn parent_navigation_targets_the_retained_instance_and_never_a_reused_pid() {
+        let parent = sample(10, 100, 300);
+        let mut child = sample(20, 200, 200);
+        child.parent_pid = 10;
+        let mut unknown = sample(30, 250, 100);
+        unknown.parent_pid = 10;
+        let mut h = History::default();
+        h.observe(frame(0, vec![parent.clone(), child.clone()]));
+        assert_eq!(h.parent_target(child.key), Some(parent.key));
+        h.observe(frame(
+            2,
+            vec![sample(10, 300, 400), child.clone(), unknown.clone()],
+        ));
+        assert_eq!(
+            h.parent_target(child.key),
+            Some(parent.key),
+            "Exited original parent remains the target"
+        );
+        assert_eq!(
+            h.parent_target(unknown.key),
+            None,
+            "A younger reused PID is not its parent"
+        );
+        assert_eq!(h.parent_target(parent.key), None);
+        h.observe(frame(2000, vec![child.clone(), sample(10, 300, 400)]));
+        assert_eq!(
+            h.parent_target(child.key),
+            None,
+            "Expired parent must not redirect to the current PID owner"
+        );
+        assert_eq!(
+            h.parent_target(ProcessKey {
+                pid: 999,
+                created: 1
+            }),
+            None
         );
     }
     #[test]

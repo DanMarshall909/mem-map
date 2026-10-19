@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "resources": {
+    "memory": {
+      "reserveMiBPerActiveWorktree": 512,
+      "basis": "estimated",
+      "estimateReason": "Small Rust/Win32 crate with one bindings dependency; reserve is for compilation and tests, not the monitor runtime."
+    }
+  }
+}

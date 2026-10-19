@@ -1,0 +1,6 @@
+/target/
+/MemMap*.exe
+/artifacts/
+/.tools/
+*.profraw
+*.profdata

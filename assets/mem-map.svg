@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Mem Map</title>
+  <desc>A teal memory chip with a three-part memory usage chart.</desc>
+  <path fill="#1a2730" d="M80 24H96V56H80Z M120 24H136V56H120Z M160 24H176V56H160Z M80 200H96V232H80Z M120 200H136V232H120Z M160 200H176V232H160Z M24 80H56V96H24Z M24 120H56V136H24Z M24 160H56V176H24Z M200 80H232V96H200Z M200 120H232V136H200Z M200 160H232V176H200Z"/>
+  <path fill="#007c68" d="M80 48H176A32 32 0 0 1 208 80V176A32 32 0 0 1 176 208H80A32 32 0 0 1 48 176V80A32 32 0 0 1 80 48Z"/>
+  <path fill="#f4f6f8" stroke="#007c68" stroke-width="8" d="M128 76A52 52 0 1 1 128 180A52 52 0 1 1 128 76Z"/>
+  <path fill="#75e0c7" stroke="#007c68" stroke-width="8" d="M128 128V76A52 52 0 0 1 180 128Z"/>
+  <path fill="#507fda" stroke="#007c68" stroke-width="8" d="M128 128H180A52 52 0 0 1 128 180Z"/>
+</svg>

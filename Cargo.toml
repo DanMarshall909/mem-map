@@ -5,6 +5,9 @@ edition = "2024"
 description = "A small native Windows memory monitor with bounded process history"
 license = "MIT"
 
+[build-dependencies]
+embed-resource = "3.0"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Threading",

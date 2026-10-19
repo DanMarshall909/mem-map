@@ -105,6 +105,14 @@ Sampling is not atomic; pie slices are capped at measured in-use memory.
 
 ## Build and verify
 
+The app icon is embedded in the executable and used for its small and large
+window icons. Editable artwork and exports are in `assets/mem-map.svg`,
+`assets/mem-map.png` and `assets/mem-map.ico` (16–256px with transparency).
+To regenerate the exports on Windows, run `./scripts/icon.ps1`; this uses Windows
+WPF offline and is not part of normal builds. Keep the SVG path artwork and both
+exports together. Resource compilation uses the build-only `embed-resource`
+crate and the Windows SDK resource compiler or MinGW `windres`.
+
 Install stable Rust with either the MSVC desktop C++ prerequisites or a working
 MinGW toolchain. The PowerShell driver also detects the isolated toolchain used
 for this workspace at `%LOCALAPPDATA%\mem-map-build`; it does not install tools.

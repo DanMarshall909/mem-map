@@ -6,13 +6,16 @@ building, or launch `target\release\mem-map.exe`. No installer or background ser
 - A dense table occupies most of the window. The narrow sidebar holds the pie,
   selected process details and history. Click an app slice or legend to inspect
   its processes; double-click a group or use Expand to do the same.
-- **Top 5** overlays the five largest active groups on one time and memory scale.
+- **Top 5** stacks the five largest active groups in a filled area chart.
+  Each band's thickness shows that group's usage; the top edge is their combined
+  total. The legend shows individual values on the shared cumulative memory scale.
   Click a legend to inspect its members. Switch to **Pie** for the physical-memory
   breakdown. The selected-process history remains available below either view.
   Top 5 follows Name/Path/Family/PID grouping and the RAM/Commit metric, independently
   of table search and growth sorting. Colours and identities stay pinned across
   samples and exits until **Refresh**, grouping or metric changes. Missing data
-  and pauses leave gaps; **Unavailable** does not mean zero. Both charts share the
+  and pauses leave gaps; a missing lower band also leaves the bands above it
+  unplotted. **Unavailable** does not mean zero. Both charts share the
   5/15/30-minute zoom. Comparison history reuses the existing bounded capture.
 - Physical-memory pie: the largest apps, other apps, system/shared/unmeasured RAM,
   and available RAM. Shared mappings are not added repeatedly across processes.
@@ -104,6 +107,14 @@ Sampling is not atomic; pie slices are capped at measured in-use memory.
 | Pan enlarged interface | Window scrollbars |
 
 ## Build and verify
+
+The app icon is embedded in the executable and used for its small and large
+window icons. Editable artwork and exports are in `assets/mem-map.svg`,
+`assets/mem-map.png` and `assets/mem-map.ico` (16–256px with transparency).
+To regenerate the exports on Windows, run `./scripts/icon.ps1`; this uses Windows
+WPF offline and is not part of normal builds. Keep the SVG path artwork and both
+exports together. Resource compilation uses the build-only `embed-resource`
+crate and the Windows SDK resource compiler or MinGW `windres`.
 
 Install stable Rust with either the MSVC desktop C++ prerequisites or a working
 MinGW toolchain. The PowerShell driver also detects the isolated toolchain used

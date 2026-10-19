@@ -97,6 +97,85 @@ struct Fonts {
     title: HFONT,
     number: HFONT,
 }
+
+struct AppClass {
+    name: Vec<u16>,
+    instance: HINSTANCE,
+    large: HICON,
+    small: HICON,
+    registered: bool,
+}
+impl AppClass {
+    unsafe fn new(instance: HINSTANCE) -> io::Result<Self> {
+        unsafe {
+            let mut class = Self {
+                name: wide("MemMap.Native.Window"),
+                instance,
+                large: null_mut(),
+                small: null_mut(),
+                registered: false,
+            };
+            let dpi = GetDpiForSystem().max(96);
+            // Win32 MAKEINTRESOURCE: an ordinal identifier, never dereferenced.
+            let icon_resource = std::ptr::without_provenance::<u16>(1);
+            // Owned images keep the two requested sizes distinct; LR_SHARED
+            // caches by resource name and can return the first size for both.
+            class.large = LoadImageW(
+                instance,
+                icon_resource,
+                IMAGE_ICON,
+                GetSystemMetricsForDpi(SM_CXICON, dpi),
+                GetSystemMetricsForDpi(SM_CYICON, dpi),
+                0,
+            );
+            if class.large.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            class.small = LoadImageW(
+                instance,
+                icon_resource,
+                IMAGE_ICON,
+                GetSystemMetricsForDpi(SM_CXSMICON, dpi),
+                GetSystemMetricsForDpi(SM_CYSMICON, dpi),
+                0,
+            );
+            if class.small.is_null() {
+                return Err(io::Error::last_os_error());
+            }
+            let wc = WNDCLASSEXW {
+                cbSize: size_of::<WNDCLASSEXW>() as u32,
+                style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
+                lpfnWndProc: Some(window_proc),
+                hInstance: instance,
+                hCursor: LoadCursorW(null_mut(), IDC_ARROW),
+                lpszClassName: class.name.as_ptr(),
+                hIcon: class.large,
+                hIconSm: class.small,
+                ..zeroed()
+            };
+            if RegisterClassExW(&wc) == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            class.registered = true;
+            Ok(class)
+        }
+    }
+}
+impl Drop for AppClass {
+    fn drop(&mut self) {
+        unsafe {
+            // Never release icons while a registered class still references them.
+            if !self.registered || UnregisterClassW(self.name.as_ptr(), self.instance) != 0 {
+                if !self.large.is_null() {
+                    DestroyIcon(self.large);
+                }
+                if !self.small.is_null() {
+                    DestroyIcon(self.small);
+                }
+            }
+        }
+    }
+}
 unsafe fn search_font(dpi: u32) -> HFONT {
     unsafe {
         CreateFontW(
@@ -674,6 +753,13 @@ impl App {
         }
         if elapsed >= 4 && self.smoke_step == 0 {
             self.smoke_assert(
+                unsafe {
+                    GetClassLongPtrW(hwnd, GCLP_HICON) != 0
+                        && GetClassLongPtrW(hwnd, GCLP_HICONSM) != 0
+                },
+                "embedded small and large window icons",
+            );
+            self.smoke_assert(
                 self.overview && self.comparison.members.len() == 5,
                 "initial top-five overview",
             );
@@ -952,9 +1038,15 @@ impl App {
             ReleaseDC(null_mut(), dc);
         }
         let full_render_ms = render_started.elapsed().as_millis();
+        let full_image = if let Some(dir) = &self.smoke {
+            unsafe { self.screenshot(&dir.join("stacked-full-history.bmp")) }
+        } else {
+            Ok(())
+        };
         std::mem::swap(&mut self.history, &mut full);
         self.refresh_rows();
         std::hint::black_box(&full);
+        full_image?;
         if gdi_before == 0 || gdi_after != gdi_before {
             return Err(io::Error::other(format!(
                 "GDI resources changed during 100 redraws: {gdi_before} -> {gdi_after}"
@@ -1010,11 +1102,6 @@ impl App {
         };
         for i in 0..=2 {
             let y = chart.top + (chart.bottom - chart.top) * i / 2;
-            c.line(
-                &[POINT { x: chart.left, y }, POINT { x: chart.right, y }],
-                BORDER,
-                1,
-            );
             c.text(
                 rx + 2,
                 y - 8,
@@ -1028,10 +1115,25 @@ impl App {
         }
         for (index, series) in plot.series.iter().enumerate() {
             for segment in &series.segments {
-                let points: Vec<_> = segment.iter().map(|(at, value)| xy(*at, *value)).collect();
-                c.line(&points, COLORS[index], 2);
-                if let Some(last) = points.last() {
-                    c.circle(last.x, last.y, 2, COLORS[index]);
+                let upper: Vec<_> = segment
+                    .iter()
+                    .map(|point| xy(point.at, point.upper))
+                    .collect();
+                if segment.len() == 1 {
+                    let point = segment[0];
+                    c.line(
+                        &[xy(point.at, point.lower), xy(point.at, point.upper)],
+                        COLORS[index],
+                        2,
+                    );
+                } else {
+                    let polygon: Vec<_> = upper
+                        .iter()
+                        .copied()
+                        .chain(segment.iter().rev().map(|point| xy(point.at, point.lower)))
+                        .collect();
+                    c.polygon(&polygon, COLORS[index]);
+                    c.line(&upper, COLORS[index], 1);
                 }
             }
             let member = &self.comparison.members[index];
@@ -1098,7 +1200,7 @@ impl App {
             rw - 24,
             14,
             &format!(
-                "Pinned · Refresh · {} window",
+                "Stacked · Pinned · {} window",
                 window_label(Some(self.range))
             ),
             c.fonts.small,
@@ -2788,23 +2890,12 @@ pub fn run() -> io::Result<()> {
     unsafe {
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let instance = GetModuleHandleW(null());
-        let class = wide("MemMap.Native.Window");
-        let wc = WNDCLASSW {
-            style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
-            lpfnWndProc: Some(window_proc),
-            hInstance: instance,
-            hCursor: LoadCursorW(null_mut(), IDC_ARROW),
-            lpszClassName: class.as_ptr(),
-            ..zeroed()
-        };
-        if RegisterClassW(&wc) == 0 {
-            return Err(io::Error::last_os_error());
-        }
+        let class = AppClass::new(instance)?;
         let mut app = Box::new(App::new(smoke));
         let dpi = GetDpiForSystem().max(96) as i32;
         let hwnd = CreateWindowExW(
             0,
-            class.as_ptr(),
+            class.name.as_ptr(),
             wide("Mem Map — Navigation and zoom").as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_HSCROLL | WS_VSCROLL,
             CW_USEDEFAULT,
@@ -2830,7 +2921,9 @@ pub fn run() -> io::Result<()> {
                 break;
             }
             if result < 0 {
-                return Err(io::Error::last_os_error());
+                let error = io::Error::last_os_error();
+                DestroyWindow(hwnd);
+                return Err(error);
             }
             // Native edits/combos can consume wheel input while focused. Route
             // interface zoom globally, and ordinary wheel input outside the

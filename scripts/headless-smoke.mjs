@@ -506,8 +506,41 @@ try {
   await toggle('Selected history metric', chartBefore.settings.metric === 'private_commit' ? 'Private commit' : 'Private working set').check();
   await toggle('Selected history Y-axis', chartBefore.settings.from_zero ? 'From zero' : 'Fit values').check();
   await toggle('Overall memory Y-axis', chartBefore.settings.overview_from_zero ? 'From zero' : 'Fit values').check();
-  await until(async () => (await view()).settings.overview_metric === 'private_working_set', 'Restore physical overview');
+  await until(async () => {
+    const restored = await view();
+    return restored.settings.overview_metric === 'private_working_set' && restored.settings.metric === chartBefore.settings.metric
+      && restored.settings.from_zero === chartBefore.settings.from_zero && restored.settings.overview_from_zero === chartBefore.settings.overview_from_zero
+      && await toggle('Selected history metric', chartBefore.settings.metric === 'private_commit' ? 'Private commit' : 'Private working set').isChecked();
+  }, 'Restore chart settings before next journey');
   check('Both charts support independent accessible metric/axis icons, commit semantics and saved preferences');
+  await toggle('Selected history metric', 'Private commit').check();
+  await until(async () => (await view()).settings.metric === 'private_commit', 'Inspector commit context');
+  const inspectionView = await view(), latestInspection = inspectionView.history.latest_inspection;
+  const summary = page.locator('.inspector-scroll .summary-values dd');
+  const assertInspection = async (sample, metric) => {
+    for (const [index, counter] of [[0, sample.private], [1, sample.commit], [3, sample.peak]]) {
+      const label = await summary.nth(index).getAttribute('aria-label');
+      assert(label.includes(counter.value === null ? 'Unavailable' : `${counter.value} bytes`), `Inspector value ${index} follows inspected sample ${sample.at}`);
+    }
+    assert((await summary.nth(3).getAttribute('aria-label')).includes(`Peak ${metric}`));
+    const delta = await summary.nth(2).getAttribute('aria-label');
+    assert(delta.includes(`${sample.change.value ?? 'Unavailable'} raw bytes`));
+  };
+  await page.mouse.move(10, 10);
+  await until(async () => (await summary.nth(3).getAttribute('aria-label')).includes('Peak private commit'), 'Inspector adopts chosen metric');
+  await assertInspection(latestInspection, 'private commit');
+  const inspectionChart = page.locator('.inspector-scroll .memory-chart');
+  await inspectionChart.focus(); await page.keyboard.press('ArrowLeft');
+  const inspectedPoint = inspectionView.history.points.at(-2);
+  assert(inspectedPoint, 'Real retained history offers a previous sample');
+  await assertInspection(inspectedPoint.inspection, 'private commit');
+  assert.match(await page.locator('.inspector-scroll .coverage').innerText(), /ago/);
+  await page.screenshot({ path: path.join(output, 'inspector-context.png') });
+  await page.keyboard.press('Escape'); await assertInspection(latestInspection, 'private commit');
+  assert.match(await page.locator('.inspector-scroll .coverage').innerText(), /Latest/);
+  await toggle('Selected history metric', chartBefore.settings.metric === 'private_commit' ? 'Private commit' : 'Private working set').check();
+  await until(async () => (await view()).settings.metric === chartBefore.settings.metric, 'Restore metric after inspector proof');
+  check('Inspector summary follows selected metric and historical chart sample, then restores latest');
 
 
   await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');

@@ -128,13 +128,36 @@ pub struct Overview {
     pub samples: Vec<OverviewSample>,
 }
 #[derive(Clone, Debug, Serialize)]
+pub struct Inspection {
+    pub at: u32,
+    pub private: Reading,
+    pub commit: Reading,
+    pub peak: Reading,
+    pub change: ChangeReading,
+    pub recorded: u32,
+}
+impl From<&dashboard::Inspection> for Inspection {
+    fn from(value: &dashboard::Inspection) -> Self {
+        Self {
+            at: value.at,
+            private: (&value.private).into(),
+            commit: (&value.commit).into(),
+            peak: (&value.peak).into(),
+            change: (&value.change).into(),
+            recorded: value.recorded,
+        }
+    }
+}
+#[derive(Clone, Debug, Serialize)]
 pub struct HistoryValue {
+    pub inspection: Inspection,
     pub at: u32,
     pub captured_unix_ms: Option<String>,
     pub reading: Reading,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Series {
+    pub latest_inspection: Inspection,
     pub start: u32,
     pub end: u32,
     pub recorded: u32,
@@ -561,7 +584,13 @@ impl Application {
     }
     fn build_series(&self) -> Option<HistorySeries> {
         self.selected.as_ref().map(|selection| {
-            let mut series = dashboard::series(self.shown(), selection, self.metric, Range::All);
+            let mut series = dashboard::inspected_series(
+                self.shown(),
+                selection,
+                self.metric,
+                Range::All,
+                self.change_seconds,
+            );
             let end = if self.follow {
                 self.shown().at
             } else {
@@ -1028,6 +1057,7 @@ impl Application {
 
 fn series_view(s: HistorySeries, timestamps: &BTreeMap<u32, u64>) -> Series {
     Series {
+        latest_inspection: (&s.latest_inspection).into(),
         start: s.start,
         end: s.end,
         recorded: s.recorded,
@@ -1035,6 +1065,7 @@ fn series_view(s: HistorySeries, timestamps: &BTreeMap<u32, u64>) -> Series {
             .points
             .into_iter()
             .map(|p| HistoryValue {
+                inspection: (&p.inspection).into(),
                 at: p.at,
                 captured_unix_ms: timestamps.get(&p.at).map(|at| at.to_string()),
                 reading: (&p.reading).into(),
@@ -1128,6 +1159,83 @@ mod tests {
             processes,
             ..Default::default()
         }
+    }
+    #[test]
+    fn inspector_context_is_metric_specific_historical_and_independent_of_viewport() {
+        let mut app = Application::new(Preferences::default());
+        for (at, private, commit) in [
+            (0, 100, 900),
+            (60, 400, 1100),
+            (120, 200, 700),
+            (180, 300, 1500),
+        ] {
+            let mut p = process(1, "Worker.exe", private);
+            p.commit = commit;
+            app.ingest(frame(at, vec![p]));
+        }
+        app.dispatch(Action::SetChangeSeconds { value: 60 })
+            .unwrap();
+        app.dispatch(Action::SetMetric {
+            value: "private_commit".into(),
+        })
+        .unwrap();
+        let wire = serde_json::to_value(app.view()).unwrap();
+        let point = &wire["history"]["points"][2];
+        assert_eq!(point["reading"]["value"], "700");
+        let context = &point["inspection"];
+        assert_eq!(context["at"], 120);
+        assert_eq!(context["private"]["value"], "200");
+        assert_eq!(context["commit"]["value"], "700");
+        assert_eq!(
+            context["peak"]["value"], "1100",
+            "No later 1500 peak leaks backward"
+        );
+        assert_eq!(context["change"]["value"], "-400");
+        assert_eq!(context["recorded"], 120);
+        let latest = wire["history"]["latest_inspection"].clone();
+        assert_eq!(latest["at"], 180);
+        assert_eq!(latest["peak"]["value"], "1500");
+        assert_eq!(latest["change"]["value"], "800");
+        let table = wire["table"].clone();
+        let selected = wire["selected"].clone();
+        app.dispatch(Action::SetHistoryViewport {
+            end: 120,
+            width: 60,
+        })
+        .unwrap();
+        let panned = serde_json::to_value(app.view()).unwrap();
+        assert_eq!(panned["history"]["latest_inspection"], latest);
+        assert_eq!(
+            panned["history"]["points"]
+                .as_array()
+                .unwrap()
+                .last()
+                .unwrap()["at"],
+            120
+        );
+        assert_eq!(panned["table"], table);
+        assert_eq!(panned["selected"], selected);
+        app.dispatch(Action::SetPaused { value: true }).unwrap();
+        app.ingest(frame(240, vec![process(1, "Worker.exe", 9999)]));
+        assert_eq!(
+            serde_json::to_value(app.view()).unwrap()["history"]["latest_inspection"],
+            latest
+        );
+        app.dispatch(Action::SetMetric {
+            value: "private_working_set".into(),
+        })
+        .unwrap();
+        let resident = serde_json::to_value(app.view()).unwrap();
+        assert_eq!(
+            resident["history"]["latest_inspection"]["peak"]["value"],
+            "400"
+        );
+        assert_eq!(
+            resident["history"]["latest_inspection"]["change"]["value"],
+            "100"
+        );
+        assert_eq!(resident["selected"], selected);
+        assert_eq!(resident["table"], table);
     }
     #[test]
     fn overview_commit_preserves_distinct_named_and_other_group_values_under_filtering() {

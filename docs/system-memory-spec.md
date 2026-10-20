@@ -648,7 +648,23 @@ Use orange fill for selected segmented options.
 
 **Fit values** uses the visible value range with modest padding. Keep both axis bounds visible so the narrower scale is obvious.
 
-Both charts have independent metric and axis settings. Default physical working-set overview uses zero-to-capacity; commit uses zero-to-visible measured commit maximum. Fit values uses the visible total range plus padding, exposes both bounds and clips stack/cursor geometry. Never portray a fitted bound as physical capacity. Persist both metrics and axes without changing table/summary counters.
+Both charts have independent metric and axis settings. Default physical working-set overview uses zero-to-capacity; commit uses zero-to-visible measured commit maximum. Fit values uses the visible total range plus padding, exposes both bounds and clips stack/cursor geometry. Never portray a fitted bound as physical capacity. Persist both metrics and axes without changing table counters.
+
+### Inspector summary context
+
+The selected-history cursor and keyboard sample inspection drive the inspector's
+working set, commit, change, peak, coverage and age from one retained sample.
+Change and peak use the selected-history metric and identify that metric. Peaks
+use the preceding 30 minutes only; comparison baselines are complete measurements
+at/before the target, at most two collection intervals old. Missing or partial
+readings remain explicit; later samples never affect an earlier inspected value.
+
+When inspection ends, show the latest displayed snapshot even when the chart
+viewport is panned. Pause freezes that snapshot. Changing selection resets the
+inspected time; metric/live refresh preserves coherent readings. Table values and
+the physical RAM header remain independent. Path text is left aligned, with the
+filename beside its folder whenever it fits; long folders may truncate while the
+full path remains accessible, selectable and copyable.
 
 ### History chart
 

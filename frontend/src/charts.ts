@@ -1,4 +1,4 @@
-import type { Action, OverviewSample, View } from './contract.ts';
+import type { Action, Inspection, OverviewSample, View } from './contract.ts';
 import { iconButton, el, text } from './dom.ts';
 import { bytes, changePercent, dateTime, plotValue, readingHelp } from './format.ts';
 const NS = 'http://www.w3.org/2000/svg';
@@ -46,14 +46,16 @@ export class MemoryChart {
   private dismissed = false;
   private entries: SVGGElement[] = [];
   private view: View | null = null;
+  private selectedId: string | null = null;
   private kind: 'overview' | 'history';
   private send: (action: Action) => void;
+  private inspect: (sample: Inspection | null) => void;
   private hover: number | null = null;
   private band = 0;
   private drag: { x: number; end: number; width: number } | null = null;
   private plot = { width: 1, left: 0, right: 1, top: 0, bottom: 1, minimum: 0, maximum: 1 };
-  constructor(kind: 'overview' | 'history', send: (action: Action) => void) {
-    this.kind = kind; this.send = send;
+  constructor(kind: 'overview' | 'history', send: (action: Action) => void, inspect: (sample: Inspection | null) => void = () => {}) {
+    this.kind = kind; this.send = send; this.inspect = inspect;
     this.element.setAttribute('role', 'group');
     this.element.setAttribute('aria-label', `${kind === 'overview' ? 'Overall memory' : 'Selected history'} chart; focus or hover for labels; Left and Right Arrow inspect samples, Up and Down Arrow select bands`);
     this.labels.id = `${kind}-chart-labels`;
@@ -70,6 +72,7 @@ export class MemoryChart {
     });
     window.addEventListener('scroll', () => { if (this.compact && !this.labels.hidden) this.positionLabels(); }, { capture: true, passive: true });
     this.element.addEventListener('keydown', e => {
+      if (this.kind === 'history' && e.key === 'Escape') { this.hover = null; this.updateReadout(); }
       if (e.key === 'Escape' && this.compact && !this.labels.hidden) {
         e.preventDefault(); e.stopPropagation(); this.element.focus({ preventScroll: true });
         this.dismissLabels();
@@ -110,12 +113,14 @@ export class MemoryChart {
   private color(index: number): string { return colors[(index + (this.view?.settings.overview_metric === 'private_commit' ? 1 : 0)) % colors.length]; }
   update(view: View): void {
     const selected = this.view?.overview.layers[this.band];
+    if (this.kind === 'history' && this.selectedId !== (view.selected?.id ?? null)) this.hover = null;
+    this.selectedId = view.selected?.id ?? null;
     this.view = view;
     if (selected) this.band = Math.max(0, view.overview.layers.findIndex(layer => selected.id ? layer.id === selected.id : layer.name === selected.name));
     this.draw();
   }
   setExpanded(value: boolean): void { this.expanded = value; this.draw(); }
-  private dismissLabels(): void { this.pinned = false; this.dismissed = true; this.updateLabels(); }
+  private dismissLabels(): void { this.pinned = false; this.dismissed = true; if (this.kind === 'history') { this.hover = null; this.updateReadout(); } this.updateLabels(); }
   private updateLabels(): void {
     const visible = !this.compact || !this.dismissed && (this.pinned || this.pointerInside || this.element.contains(document.activeElement));
     const popover = typeof this.labels.showPopover === 'function' && this.labels.isConnected;
@@ -177,6 +182,7 @@ export class MemoryChart {
     } else {
       const history = this.view.history;
       const point = nearest(history?.points ?? [], this.hover ?? history?.end ?? 0);
+      this.inspect(this.hover === null ? history?.latest_inspection ?? null : point?.inspection ?? null);
       text(this.data, point ? `${this.view.selected?.name ?? 'Selection'} · ${point.captured_unix_ms ? dateTime(point.captured_unix_ms) : `${age(history!.end - point.at)} ago`} · ${age(history!.end - point.at)} ago · ${this.view.settings.metric === 'private_commit' ? 'Private commit' : 'Private working set'} ${bytes(point.reading.value)} · ${readingHelp(point.reading)}` : 'Select a process or group to inspect history');
     }
     let tooltip = this.drawing.querySelector<SVGTitleElement>(':scope > title');

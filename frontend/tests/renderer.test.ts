@@ -134,7 +134,7 @@ test('path aggregates retain original identity, clipboard action and accessible 
 test('a partial current history endpoint stays unknown and all overview totals remain textual', () => {
   const window = dom(); const dashboard = new Dashboard(() => {}, () => {}); document.body.append(dashboard.element);
   const view = fixture(); view.history!.points.at(-1)!.reading = { value: '1073741824', measured: 1, total: 2, reason: 'Access denied', enumeration_complete: true }; view.history!.current = view.history!.points.at(-1)!.reading;
-  view.selected!.private = view.history!.current; dashboard.update(view);
+  view.selected!.private = view.history!.current; view.history!.latest_inspection.private = view.history!.current; dashboard.update(view);
   assert.match(dashboard.inspector.textContent!, /Partial/); assert.match(dashboard.inspector.querySelector('.chart-data')!.textContent!, /Access denied/);
   assert.equal(dashboard.inspector.querySelectorAll('svg circle').length, 0, 'partial endpoint has no falsely complete chart marker');
   assert.match(dashboard.element.querySelector('.overview-panel')!.textContent!, /Used 24\.00 GiB/); assert.match(dashboard.element.querySelector('.overview-panel')!.textContent!, /Available 8\.00 GiB/);

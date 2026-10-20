@@ -112,12 +112,23 @@ pub struct EntitySummary {
     pub members: Vec<ProcessKey>,
 }
 #[derive(Clone, Debug)]
+pub struct Inspection {
+    pub at: u32,
+    pub private: Reading,
+    pub commit: Reading,
+    pub peak: Reading,
+    pub change: ChangeReading,
+    pub recorded: u32,
+}
+#[derive(Clone, Debug)]
 pub struct HistoryValue {
     pub at: u32,
     pub reading: Reading,
+    pub inspection: Inspection,
 }
 #[derive(Clone, Debug)]
 pub struct HistorySeries {
+    pub latest_inspection: Inspection,
     pub start: u32,
     pub end: u32,
     pub recorded: u32,
@@ -781,16 +792,34 @@ pub fn series(
     metric: Metric,
     range: Range,
 ) -> HistorySeries {
+    inspected_series(history, selection, metric, range, 300)
+}
+
+/// Compute readings once per retained time. Peak and baseline operations below
+/// inspect only the cached numeric values, never rescan process membership.
+pub fn inspected_series(
+    history: &History,
+    selection: &Selection,
+    metric: Metric,
+    range: Range,
+    change_seconds: u32,
+) -> HistorySeries {
     let tracks = members(history, selection);
     let (mut first, mut end) = retained_span(history, selection, &tracks);
+    let cached = history.selected_identity_for(selection);
     let cached_point = matches!(selection, Selection::Process(_))
-        .then(|| history.selected_identity_for(selection))
+        .then_some(cached)
         .flatten()
         .and_then(|identity| identity.last_leaf_point);
     if let Some(point) = cached_point {
         first = first.min(point.at);
         end = end.max(point.at);
     }
+    let exited_at = cached.and_then(|identity| identity.exited_at).or_else(|| {
+        (!tracks.is_empty() && tracks.iter().all(|track| track.exited_at.is_some()))
+            .then(|| tracks.iter().filter_map(|track| track.exited_at).max())
+            .flatten()
+    });
     let start = match range {
         Range::Last(seconds) => end.saturating_sub(seconds).max(first),
         Range::All => first,
@@ -799,21 +828,134 @@ pub fn series(
     if let Some(point) = cached_point {
         times.insert(point.at);
     }
-    let points: Vec<_> = times
+    times.insert(history.at);
+    let values: Vec<_> = times
         .into_iter()
-        .filter(|at| *at >= start && *at <= end)
-        .map(|at| HistoryValue {
-            at,
-            reading: reading_at(history, selection, metric, at),
+        .map(|at| {
+            let mut private = reading_at(history, selection, Metric::PrivateWorkingSet, at);
+            let mut commit = reading_at(history, selection, Metric::PrivateCommit, at);
+            if exited_at.is_some_and(|exit| at >= exit) {
+                for reading in [&mut private, &mut commit] {
+                    reading.value = None;
+                    reading.reason = Some("Exited; values in history are historical".into());
+                }
+            }
+            (at, private, commit)
         })
         .collect();
-    let current = points.last().map(|p| p.reading.clone()).unwrap_or_default();
+    let chosen = |index: usize| match metric {
+        Metric::PrivateWorkingSet => &values[index].1,
+        Metric::PrivateCommit => &values[index].2,
+    };
+    let mut peaks = std::collections::VecDeque::<usize>::new();
+    let mut inspections = Vec::with_capacity(values.len());
+    for (index, (at, private, commit)) in values.iter().enumerate() {
+        let window_start = at.saturating_sub(crate::model::HISTORY_SECONDS);
+        while peaks
+            .front()
+            .is_some_and(|previous| values[*previous].0 < window_start)
+        {
+            peaks.pop_front();
+        }
+        if let Some(value) = chosen(index).value {
+            while peaks
+                .back()
+                .is_some_and(|previous| chosen(*previous).value.unwrap() <= value)
+            {
+                peaks.pop_back();
+            }
+            peaks.push_back(index);
+        }
+        let recorded = (*at).min(end).saturating_sub(first);
+        let mut peak = peaks
+            .front()
+            .map(|previous| chosen(*previous).clone())
+            .unwrap_or_default();
+        let metric_label = match metric {
+            Metric::PrivateWorkingSet => "private working set",
+            Metric::PrivateCommit => "private commit",
+        };
+        let coverage = peak.reason.take();
+        peak.reason = Some(format!(
+            "Observed {metric_label} peak; {recorded} seconds recorded of a 30-minute window{}",
+            coverage
+                .map(|reason| format!("; {reason}"))
+                .unwrap_or_default()
+        ));
+        let unavailable = |reason: &str| ChangeReading {
+            value: None,
+            reason: Some(reason.into()),
+        };
+        let change = if let Some(target) = at.checked_sub(change_seconds) {
+            if values.first().is_none_or(|point| point.0 > target) {
+                unavailable("Requested comparison interval is not yet recorded")
+            } else {
+                let boundary = values.partition_point(|point| point.0 <= target);
+                let baseline = (0..boundary)
+                    .rev()
+                    .take_while(|previous| {
+                        target - values[*previous].0 <= history.interval.max(2).saturating_mul(2)
+                    })
+                    .find(|previous| {
+                        chosen(*previous).value.is_some() && !chosen(*previous).partial()
+                    });
+                if chosen(index).value.is_none() || chosen(index).partial() {
+                    unavailable("Change unavailable: incomplete endpoint measurement coverage")
+                } else if let Some(previous) = baseline {
+                    let delta = i128::from(chosen(index).value.unwrap())
+                        - i128::from(chosen(previous).value.unwrap());
+                    ChangeReading {
+                        value: Some(delta.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64),
+                        reason: Some(format!(
+                            "Baseline: last valid sample at or before target, at {}s (maximum age: two collection intervals)",
+                            values[previous].0
+                        )),
+                    }
+                } else {
+                    unavailable(
+                        "No complete valid baseline within two collection intervals before the target",
+                    )
+                }
+            }
+        } else {
+            unavailable("Requested comparison interval is not yet recorded")
+        };
+        inspections.push(Inspection {
+            at: *at,
+            private: private.clone(),
+            commit: commit.clone(),
+            peak,
+            change,
+            recorded,
+        });
+    }
+    let latest_inspection = inspections
+        .last()
+        .expect("Displayed time is always present")
+        .clone();
+    let points: Vec<_> = inspections
+        .into_iter()
+        .filter(|point| point.at >= start && point.at <= end)
+        .map(|inspection| HistoryValue {
+            at: inspection.at,
+            reading: match metric {
+                Metric::PrivateWorkingSet => inspection.private.clone(),
+                Metric::PrivateCommit => inspection.commit.clone(),
+            },
+            inspection,
+        })
+        .collect();
+    let current = points
+        .last()
+        .map(|point| point.reading.clone())
+        .unwrap_or_default();
     HistorySeries {
         start,
         end,
         recorded: end.saturating_sub(first),
         points,
         current,
+        latest_inspection,
     }
 }
 pub fn overview(history: &History, range: Range) -> OverviewPlot {
@@ -1038,6 +1180,94 @@ mod tests {
             captured_unix_ms: 1_000_000 + u64::from(at) * 1000,
             ..Default::default()
         }
+    }
+    #[test]
+    fn inspector_context_retains_coverage_skips_invalid_baselines_and_marks_exit() {
+        let mut h = History::default();
+        let selection = Selection::Name("worker.exe".into());
+        let one = process(1, "Worker.exe", 10);
+        let two = process(2, "Worker.exe", 20);
+        h.observe(frame(0, vec![one.clone(), two.clone()]));
+        let mut missing = frame(2, vec![one.clone()]);
+        missing.observed.push(ProcessObservation {
+            pid: 2,
+            key: Some(two.key),
+            name: two.name.clone(),
+            image: Some(two.image.clone()),
+            parent_pid: 0,
+            error: Some("Access denied".into()),
+        });
+        h.observe(missing);
+        let mut later = one.clone();
+        later.private = 40;
+        later.commit = 333;
+        h.observe(frame(4, vec![later.clone(), two.clone()]));
+        h.observe(frame(60, vec![later.clone(), two.clone()]));
+        h.observe(frame(62, vec![later.clone(), two.clone()]));
+        h.observe(frame(70, vec![later.clone(), two.clone()]));
+        let commit = inspected_series(&h, &selection, Metric::PrivateCommit, Range::All, 60);
+        let at2 = &commit.points.iter().find(|p| p.at == 2).unwrap().inspection;
+        assert!(at2.commit.partial());
+        assert_eq!(at2.commit.measured, 1);
+        assert_eq!(at2.commit.total, 2);
+        assert_eq!(
+            at2.change.value, None,
+            "Partial endpoints cannot have a rate"
+        );
+        let at62 = &commit
+            .points
+            .iter()
+            .find(|p| p.at == 62)
+            .unwrap()
+            .inspection;
+        assert_eq!(
+            at62.change.value,
+            Some(273),
+            "Incomplete target sample is skipped for the complete 0s baseline within four seconds"
+        );
+        assert!(at62.change.reason.as_ref().unwrap().contains("at 0s"));
+        assert_eq!(
+            commit.latest_inspection.change.value, None,
+            "4s baseline is stale for target10; later60 must not leak backward"
+        );
+        h.observe(frame(72, vec![]));
+        let exited = inspected_series(&h, &selection, Metric::PrivateCommit, Range::All, 60);
+        assert_eq!(exited.latest_inspection.at, 72);
+        assert_eq!(exited.latest_inspection.private.value, None);
+        assert_eq!(exited.latest_inspection.commit.value, None);
+        assert!(
+            exited
+                .latest_inspection
+                .commit
+                .reason
+                .as_ref()
+                .unwrap()
+                .contains("Exited")
+        );
+        assert_eq!(exited.latest_inspection.change.value, None);
+        assert_eq!(exited.latest_inspection.peak.value, Some(453));
+        assert_eq!(
+            exited.points.last().unwrap().at,
+            70,
+            "Historical line retains its true observed end"
+        );
+    }
+    #[test]
+    fn inspector_context_does_not_turn_incomplete_enumeration_into_a_valid_rate() {
+        let mut h = History::default();
+        let selected = Selection::Name("worker.exe".into());
+        h.observe(frame(0, vec![process(1, "Worker.exe", 100)]));
+        let mut incomplete = frame(60, vec![process(1, "Worker.exe", 200)]);
+        incomplete.complete_scan = false;
+        h.observe(incomplete);
+        let values = inspected_series(&h, &selected, Metric::PrivateCommit, Range::All, 60);
+        assert_eq!(values.latest_inspection.commit.value, Some(1200));
+        assert!(!values.latest_inspection.commit.enumeration_complete);
+        assert_eq!(values.latest_inspection.change.value, None);
+        assert!(
+            !values.latest_inspection.peak.enumeration_complete,
+            "Partial observed peak keeps coverage metadata"
+        );
     }
     #[test]
     fn failed_measurement_stays_unavailable_until_complete_enumeration_confirms_exit() {

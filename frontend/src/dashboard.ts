@@ -1,4 +1,4 @@
-import type { Action, Grouping, Metric, View } from './contract.ts';
+import type { Action, Grouping, Inspection, Metric, View } from './contract.ts';
 import { checkbox, el, iconButton, radios, select, setIcon, text } from './dom.ts';
 import { bytes, changePercent, dateTime, duration, elapsed, partial, reading, readingHelp } from './format.ts';
 import { ProcessTreeGrid } from './treegrid.ts';
@@ -53,6 +53,7 @@ export class Dashboard {
   private show: HTMLButtonElement;
   private values: HTMLElement[] = [];
   private changeLabel = el('dt', '', 'Change over 5m');
+  private peakLabel = el('dt', '', 'Peak (last 30m)');
   private coverage = el('p', 'coverage');
   private tableStatus = el('p', 'table-status sr-only');
   private barsHelp = el('p', 'bars-help sr-only');
@@ -67,7 +68,7 @@ export class Dashboard {
   private lastNotice = '';
   constructor(send: (action: Action) => void, native: (action: 'copy' | 'snapshot') => void) {
     this.send = send; this.table = new ProcessTreeGrid(send);
-    this.overview = new MemoryChart('overview', send); this.history = new MemoryChart('history', send);
+    this.overview = new MemoryChart('overview', send); this.history = new MemoryChart('history', send, sample => this.updateInspection(sample));
     const summary = el('div', 'header-summary');
     this.progress.max = 100; this.progress.setAttribute('aria-label', 'System physical memory used');
     summary.append(this.system, this.progress, this.available, this.live);
@@ -114,7 +115,7 @@ export class Dashboard {
     this.copy = iconButton('Copy path', 'copy', () => native('copy')); pathRow.append(pathLabel, this.copy);
     this.paths.append(this.pathSummary, this.pathList);
     const summaryValues = el('dl', 'summary-values');
-    ['Private working set', 'Private commit', '', 'Peak (last 30m)'].forEach((label, index) => { const dt = index === 2 ? this.changeLabel : el('dt', '', label); const dd = el('dd', '', '—'); dd.tabIndex = 0; this.values.push(dd); summaryValues.append(dt, dd); });
+    ['Private working set', 'Private commit', '', ''].forEach((label, index) => { const dt = index === 2 ? this.changeLabel : index === 3 ? this.peakLabel : el('dt', '', label); const dd = el('dd', '', '—'); dd.tabIndex = 0; this.values.push(dd); summaryValues.append(dt, dd); });
     this.metric = radios('Selected history metric', metricChoices, value => send({ type: 'set_metric', value }), { private_working_set: 'ram', private_commit: 'commit' });
     this.ranges = radios('View last', rangeChoices, value => send({ type: 'set_history_range', seconds: value === 'all' ? null : Number(value) }));
     this.ranges.group.classList.add('history-range'); this.ranges.group.querySelector('legend')!.classList.add('sr-only');
@@ -185,18 +186,28 @@ export class Dashboard {
     this.copy.setAttribute('aria-label', selected && !selected.paths_complete ? 'Copy known paths' : selected && selected.path_count > 1 ? 'Copy all paths' : 'Copy path'); this.copy.title = this.copy.getAttribute('aria-label')!; this.copy.disabled = !fullPaths.length;
     this.paths.hidden = fullPaths.length < 2; text(this.pathSummary, `${fullPaths.length} known executable paths${selected?.paths_complete ? '' : ' · coverage incomplete'}`);
     const existing = [...this.pathList.children]; fullPaths.forEach((path, i) => { let li = existing[i]; if (!li) { li = el('li'); this.pathList.append(li); } text(li, path); }); existing.slice(fullPaths.length).forEach(li => li.remove());
-    [selected?.private, selected?.commit, null, selected?.peak].forEach((r, i) => {
-      const percentage = i === 2 && selected ? changePercent(selected.change, selected.private, selected.lifecycle) : null;
-      const value = i === 2 ? percentage?.label ?? '—' : r ? reading(r) : '—'; text(this.values[i], value);
-      if (i === 2) this.values[i].style.color = percentage?.color ?? '#b8c0c6';
-      const help = i === 2 ? percentage?.help ?? 'Select an entity' : r ? readingHelp(r) : 'Select an entity'; this.values[i].title = help; this.values[i].setAttribute('aria-label', `${['Private working set', 'Private commit', `Change over ${view.settings.change_seconds / 60}m`, 'Peak private working set last 30 minutes'][i]} ${value}; ${help}`);
-    });
-    text(this.changeLabel, `Change over ${view.settings.change_seconds / 60}m`);
-    text(this.coverage, selected ? `${selected.private.measured} of ${selected.private.total} processes measured${partial(selected.private) ? ' · Partial' : ''}${selected.private.reason ? ` · ${selected.private.reason}` : ''}${selected.change.reason ? ` · Change: ${selected.change.reason}` : ''} · ${duration(selected.recorded)} recorded; peak uses the last 30 minutes` : '');
     text(this.overviewTitle, view.settings.overview_metric === 'private_commit' ? 'Measured private commit' : 'Overall memory usage');
     this.overview.update(view); this.history.update(view);
     if (view.notice !== this.lastNotice && view.notice) this.showNotice(view.notice);
     if (this.diagnosticOpen) this.renderDiagnostics();
+  }
+  private updateInspection(sample: Inspection | null): void {
+    if (!this.view) return;
+    const view = this.view, selected = view.selected;
+    const commit = view.settings.metric === 'private_commit', metric = commit ? 'private commit' : 'private working set';
+    const current = sample ? commit ? sample.commit : sample.private : null;
+    // Historical readings describe that sample, even when the entity has since exited.
+    const percentage = sample && current ? changePercent(sample.change, current, sample.at === view.displayed_at ? selected?.lifecycle : 'live') : null;
+    const labels = ['Private working set', 'Private commit', `Change over ${view.settings.change_seconds / 60}m (${metric})`, `Peak ${metric} last 30 minutes`];
+    [sample?.private, sample?.commit, null, sample?.peak].forEach((r, i) => {
+      const value = i === 2 ? percentage?.label ?? '—' : r ? reading(r) : '—'; text(this.values[i], value);
+      if (i === 2) this.values[i].style.color = percentage?.color ?? '#b8c0c6';
+      const help = i === 2 ? percentage?.help ?? 'Select an entity' : r ? readingHelp(r) : 'Select an entity';
+      this.values[i].title = help; this.values[i].setAttribute('aria-label', `${labels[i]} ${value}; ${help}`);
+    });
+    text(this.changeLabel, `Change over ${view.settings.change_seconds / 60}m`);
+    text(this.peakLabel, `Peak ${commit ? 'commit' : 'working set'} (last 30m)`);
+    text(this.coverage, selected && sample && current ? `${sample.at === view.displayed_at ? 'Latest' : `${duration(view.displayed_at - sample.at)} ago`} · ${current.measured} of ${current.total} processes measured${partial(current) ? ' · Partial' : ''}${current.reason ? ` · ${current.reason}` : ''}${sample.change.reason ? ` · Change: ${sample.change.reason}` : ''} · ${duration(sample.recorded)} recorded; ${metric} peak uses the preceding 30 minutes` : '');
   }
   private updateLayout(): void {
     const scale = (this.view?.settings.ui_zoom ?? 100) / 100;

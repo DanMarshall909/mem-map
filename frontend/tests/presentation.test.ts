@@ -51,6 +51,7 @@ test('table and inspector percentages use the earlier complete reading without f
     row.change = { value: example.delta, reason: example.delta === null ? 'Need history' : 'Original measurement reason' };
     row.lifecycle = example.exited ? 'exited' : 'live';
     view.selected = { ...view.selected!, private: row.private, change: row.change, lifecycle: row.lifecycle };
+    view.history!.latest_inspection = { ...view.history!.latest_inspection, private: row.private, change: row.change };
     dashboard.update(view);
     const cell = dashboard.table.element.querySelector<HTMLElement>('[data-row-id="name:worker"] .cell-5')!;
     const inspectorValue = dashboard.inspector.querySelectorAll<HTMLElement>('.summary-values dd')[2];

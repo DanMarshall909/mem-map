@@ -53,7 +53,21 @@ Rows contain `id`, `parent_id`, `depth`, `has_children`, `expanded`, `selected`,
 `overview`: existing OverviewPlot shape, with layers { `name`, `id` (nullable) },
 samples { `at`, `capacity`, `available`, `used`, `layers`, `measured`, `observed`,
 `reason`, `captured_unix_ms`, `baseline` }. Each baseline is null or { `at`, `layers` } with exact decimal byte strings. Byte values are decimal strings; unknown layers remain null.
-`history`: nullable existing HistorySeries shape, points { `at`, `reading`, `captured_unix_ms` }.
+`history`: nullable HistorySeries shape, points { `at`, `reading`, `captured_unix_ms`,
+`inspection` }, plus `latest_inspection` independent of the panned viewport.
+An inspection contains `at`, `private`, `commit`, `peak`, `change`, `recorded`.
+Both counters describe that exact retained sample; peak/change follow the selected
+history metric. Peak uses only the preceding 30 minutes, and change uses a complete
+baseline at/before the requested comparison time, at most two collection intervals
+old. Unknown endpoints/coverage remain explicit. No browser byte arithmetic is
+used to infer historical counters, baselines or peaks.
+
+The renderer uses the cursor/keyboard sample inspection for its summary, reverting
+to `latest_inspection` when inspection ends, even in a panned viewport. A selection
+change clears cursor context. Metric changes retain the inspected time. Latest
+means the displayed snapshot, including pause; table and physical header ownership
+remain independent. Executable path fragments flow left together while preserving
+the full selectable, accessible and copyable path.
 Sample timestamps are exact decimal strings from retained Rust observations.
 `history_viewport`: `follow`, `manual_end`, `manual_width`, `reset_enabled`.
 `diagnostics`: existing Diagnostics shape with exact byte strings.

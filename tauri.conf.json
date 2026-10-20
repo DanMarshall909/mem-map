@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Mem Map",
+  "version": "0.1.0",
+  "identifier": "com.danmarshall.mem-map",
+  "build": { "frontendDist": "frontend/dist" },
+  "app": {
+    "windows": [{ "label": "main", "create": false, "title": "Mem Map", "width": 1440, "height": 900, "minWidth": 760, "minHeight": 540, "backgroundColor": "#1f2326" }],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'none'",
+      "capabilities": [{ "identifier": "main-local", "description": "Bundled local dashboard only; no generic desktop APIs.", "windows": ["main"], "permissions": ["allow-get-view", "allow-dispatch", "allow-copy-paths", "allow-export-csv"] }]
+    }
+  },
+  "bundle": { "active": false, "icon": ["assets/mem-map.ico"] }
+}

@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "resources": {
     "memory": {
-      "reserveMiBPerActiveWorktree": 1024,
+      "reserveMiBPerActiveWorktree": 2048,
       "basis": "estimated",
-      "estimateReason": "Rust/Win32 application with Windows API and UI Automation bindings; conservative reserve for one serialized compiler/test worker, not the monitor runtime."
+      "estimateReason": "Tauri/Rust Windows build plus TypeScript frontend; conservative reserve for one serialized compiler/test worker and one renderer test process, not the monitor runtime."
     }
   }
 }

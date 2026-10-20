@@ -1,3 +1,4 @@
+pub mod application;
 pub mod dashboard;
 pub mod model;
 pub mod preferences;

@@ -1,9 +1,13 @@
 fn main() {
-    println!("cargo:rerun-if-changed=assets/mem-map.rc");
-    println!("cargo:rerun-if-changed=assets/mem-map.ico");
-    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        embed_resource::compile_for("assets/mem-map.rc", ["mem-map"], embed_resource::NONE)
-            .manifest_required()
-            .expect("compile the Mem Map icon resource");
+    if std::env::var_os("CARGO_FEATURE_DESKTOP").is_some() {
+        let attributes = tauri_build::Attributes::new().app_manifest(
+            tauri_build::AppManifest::new().commands(&[
+                "get_view",
+                "dispatch",
+                "copy_paths",
+                "export_csv",
+            ]),
+        );
+        tauri_build::try_build(attributes).expect("build the local Tauri dashboard");
     }
 }

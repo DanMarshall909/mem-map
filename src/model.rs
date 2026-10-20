@@ -4,67 +4,6 @@ pub const HISTORY_SECONDS: u32 = 30 * 60;
 pub const MAX_POINTS: usize = 901;
 pub const MAX_TRACKS: usize = 1024;
 
-pub fn zoom_time(seconds: u32, inward: bool) -> u32 {
-    const STEPS: [u32; 7] = [30, 60, 120, 300, 600, 900, HISTORY_SECONDS];
-    if inward {
-        STEPS.into_iter().rev().find(|s| *s < seconds).unwrap_or(30)
-    } else {
-        STEPS
-            .into_iter()
-            .find(|s| *s > seconds)
-            .unwrap_or(HISTORY_SECONDS)
-    }
-}
-pub fn zoom_interface(percent: u32, direction: i32) -> u32 {
-    if direction == 0 {
-        100
-    } else {
-        (percent as i32 + direction.signum() * 25).clamp(75, 200) as u32
-    }
-}
-#[derive(Clone, Copy, Debug)]
-pub struct Viewport {
-    pub scale: u32,
-    pub width: i32,
-    pub height: i32,
-    pub page_width: i32,
-    pub page_height: i32,
-    pub x: i32,
-    pub y: i32,
-}
-impl Viewport {
-    pub fn new(width: i32, height: i32, dpi: u32, zoom: u32, x: i32, y: i32) -> Self {
-        let scale = dpi.max(96) * zoom.clamp(75, 200) / 100;
-        let page_width = (width.max(0) * 96 / scale as i32).max(1);
-        let page_height = (height.max(0) * 96 / scale as i32).max(1);
-        // The canvas follows the client. Only genuinely extreme windows use
-        // overflow; tables and the inspector own their ordinary scrolling.
-        let width = page_width.max(760);
-        let height = page_height.max(600);
-        Self {
-            scale,
-            width,
-            height,
-            page_width,
-            page_height,
-            x: x.clamp(0, width - page_width),
-            y: y.clamp(0, height - page_height),
-        }
-    }
-    pub fn point(&self, x: i32, y: i32) -> (i32, i32) {
-        (
-            x * 96 / self.scale as i32 + self.x,
-            y * 96 / self.scale as i32 + self.y,
-        )
-    }
-    pub fn physical(&self, x: i32, y: i32) -> (i32, i32) {
-        (
-            (x - self.x) * self.scale as i32 / 96,
-            (y - self.y) * self.scale as i32 / 96,
-        )
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProcessKey {
     pub pid: u32,
@@ -1166,42 +1105,6 @@ mod tests {
         .into_iter()
         .map(|p| (p.at, p.reading.value))
         .collect()
-    }
-    #[test]
-    fn zoom_is_bounded_and_scaled_scrolling_preserves_coordinate_identity() {
-        assert_eq!(zoom_time(1800, true), 900);
-        assert_eq!(zoom_time(900, true), 600);
-        assert_eq!(zoom_time(500, true), 300);
-        assert_eq!(zoom_time(500, false), 600);
-        assert_eq!(zoom_time(30, true), 30);
-        assert_eq!(zoom_time(1800, false), 1800);
-        let normal = Viewport::new(1260, 890, 96, 100, 999, 999);
-        assert_eq!(
-            (normal.width, normal.height, normal.x, normal.y),
-            (1260, 890, 0, 0)
-        );
-        let enlarged = Viewport::new(1260, 890, 96, 200, 999, 999);
-        assert_eq!(
-            (
-                enlarged.scale,
-                enlarged.width,
-                enlarged.height,
-                enlarged.page_width,
-                enlarged.page_height,
-                enlarged.x,
-                enlarged.y
-            ),
-            (192, 760, 600, 630, 445, 130, 155)
-        );
-        assert_eq!(enlarged.point(100, 50), (180, 180));
-        assert_eq!(enlarged.physical(180, 180), (100, 50));
-        let high_dpi = Viewport::new(1260, 890, 144, 125, 999, 999);
-        assert_eq!(high_dpi.scale, 180);
-        let physical = high_dpi.physical(500, 400);
-        let logical = high_dpi.point(physical.0, physical.1);
-        assert!((logical.0 - 500).abs() <= 1 && (logical.1 - 400).abs() <= 1);
-        let zero = Viewport::new(0, 0, 96, 100, -100, -100);
-        assert!(zero.page_width > 0 && zero.page_height > 0 && zero.x == 0 && zero.y == 0);
     }
     #[test]
     fn parent_names_are_retained_after_exit_and_never_replaced_by_reused_pids() {

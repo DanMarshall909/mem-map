@@ -2,6 +2,9 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$CargoArgs)
 $ErrorActionPreference = 'Stop'
 $localTools = Join-Path $env:LOCALAPPDATA 'mem-map-build'
 if (Test-Path -LiteralPath (Join-Path $localTools 'cargo\bin\cargo.exe')) {
+    if (!$env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR = Join-Path $localTools 'targets\tauri' }
+    if (!$env:CARGO_PROFILE_DEV_DEBUG) { $env:CARGO_PROFILE_DEV_DEBUG = '0' }
+    if (!$env:CARGO_INCREMENTAL) { $env:CARGO_INCREMENTAL = '0' }
     $env:CARGO_HOME = Join-Path $localTools 'cargo'
     $env:RUSTUP_HOME = Join-Path $localTools 'rustup'
     $env:PATH = (Join-Path $env:CARGO_HOME 'bin') + ';' + $env:PATH

@@ -1,11 +1,11 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-#[cfg(windows)]
-mod ui;
+#[cfg(all(windows, feature = "desktop"))]
+mod desktop;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "desktop"))]
 fn main() {
-    if let Err(error) = ui::run() {
+    if let Err(error) = desktop::run() {
         use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MessageBoxW};
         let message: Vec<_> = format!("{error}\0").encode_utf16().collect();
         let title: Vec<_> = "Mem Map\0".encode_utf16().collect();
@@ -22,7 +22,7 @@ fn main() {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(not(all(windows, feature = "desktop")))]
 fn main() {
-    eprintln!("Mem Map currently requires Windows 10/11.");
+    eprintln!("Mem Map requires Windows and the desktop feature.");
 }

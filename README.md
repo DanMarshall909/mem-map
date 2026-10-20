@@ -1,6 +1,6 @@
 # Mem Map
 
-A native Windows memory monitor in Rust. Build and run **MemMap.exe**. No installer,
+A Windows memory monitor with a Tauri interface and a Rust backend. Build and run **MemMap.exe**. No installer,
 elevation, background service, process termination or memory trimming is required.
 
 The dark dashboard combines a virtual process tree grid, an overall-memory
@@ -56,7 +56,7 @@ saved only on request; local captures and binaries are excluded from Git.
 
 ## Keyboard and accessibility
 
-Tab moves through native controls, table and inspector. Segments have radio
+Tab moves through browser controls, table and inspector. Segments have radio
 behavior; Space activates focused checkboxes/buttons. Table arrows navigate,
 expand, collapse or move to a parent. Ctrl+F focuses the filter; Escape clears it.
 Ctrl+wheel and Ctrl+plus/minus scale the application; Ctrl+0 restores normal UI
@@ -64,13 +64,15 @@ zoom. Chart navigation remains separate. F2 cycles grouping, F3 switches memory/
 change sorting, F4 toggles exited instances, F5 switches history metric and F8
 navigates to a retained parent.
 
-Native controls and a UI Automation provider expose names, measurements,
-hierarchy, expansion, selection and sort state. Read-only chart value fields
+Semantic HTML controls and WebView2 accessibility expose names, measurements,
+hierarchy, expansion, selection and sort state. Keyboard chart value fields
 support inspection without a mouse. DPI, Windows text size and UI zoom adapt the
-layout. The table measures numeric widths before allocating bar space, controls
-wrap, and ordinary windows keep their header and footer visible. Long process
-lists and inspector details scroll inside their panels; extreme window sizes
-retain an overflow fallback for readable access.
+layout. Ordinary desktop sizes keep the header and footer visible. Small windows
+or enlarged text reflow the regions vertically so every control remains reachable.
+The virtual process table and inspector
+have separate scroll containers with reserved scrollbar gutters. Inspector text,
+controls and SVG charts share normal browser flow, avoiding the old mixed GDI
+and child-window scrolling surface.
 
 ## Build and verify
 
@@ -79,15 +81,18 @@ Requires 64-bit Windows 10/11 22H2 with September 2023 updates or newer for the
 Available memory includes immediately reusable standby, free and zeroed pages;
 see [Microsoft's memory-status definition](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/ns-sysinfoapi-memorystatusex).
 
-Use stable Rust and a compatible Windows linker/resource compiler. The PowerShell
+Requires Node.js 22.12+ (or 24+) and Microsoft Edge WebView2. Install the pinned
+frontend dependencies with `npm ci --prefix frontend`. Use stable Rust and a
+compatible Windows linker/resource compiler. The PowerShell
 driver detects the isolated toolchain under `%LOCALAPPDATA%\mem-map-build`; it
 does not install tools. For this Windows GNU setup it selects LLVM clang/LLD
-and Rust's matching runtime. The affected GNU BFD linker can produce malformed
+and Rust's matching runtime. GNU builds also ship **WebView2Loader.dll** beside
+**MemMap.exe**; keep both files together. The affected GNU BFD linker can produce malformed
 imports with the current Windows bindings despite a successful link.
 
 ```powershell
 .\scripts\build.ps1
-.\scripts\check.ps1 fast  # model, preferences, provider and collector-status contracts
+.\scripts\check.ps1 fast  # Rust domain/controller and fast DOM/IPC contracts
 .\scripts\check.ps1 slow  # real Windows allocation, identity and handle lifetime
 .\scripts\check.ps1 all
 .\scripts\cargo.ps1 fmt --check
@@ -95,14 +100,18 @@ imports with the current Windows bindings despite a successful link.
 .\scripts\smoke.ps1
 ```
 
-The native smoke uses real collection and controls, checks paused recording,
-export and path copying, renders several sizes/scales and measures GDI resources.
-A separate diagnostic history exercises full retention without inventing visible
-or exported observations. Captures can contain local process paths and remain in
-ignored `artifacts/`.
+The slow desktop smoke launches the compiled Tauri application with an isolated
+WebView2 profile and test-owned preference file. Playwright connects to its local
+debugging port for pause/recording, filtering, grouping, zoom and native window
+resizing. The repeated-scroll regression was removed at the user's request;
+the old native Windows drawing surface has been replaced. A separate
+Windows client reads UI Automation, the actual clipboard and the CSV save dialog.
+The debugging port is enabled only by the test launch environment. Captures can
+contain local process paths and are kept under `%LOCALAPPDATA%\mem-map-build\evidence`.
 
 The accepted redesign is in [the specification](docs/system-memory-spec.md).
-Current evidence is in [dashboard validation](docs/system-memory-validation.md).
+The Tauri migration is tracked in [MM-008](docs/issues/resolved/memory/MM-008-tauri-ui.md)
+and its [interface contract](docs/tauri-contract.md).
 Earlier `docs/*-validation.md` records remain historical evidence for superseded
 views. The icon source and exports remain in `assets/`; `scripts/icon.ps1`
 regenerates exports with Windows WPF.

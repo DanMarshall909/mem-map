@@ -1,0 +1,23 @@
+{
+  "name": "mem-map-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "check": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "test:fast": "node --test --experimental-strip-types tests/*.test.ts",
+    "test:slow": "node ../scripts/desktop-smoke.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.12.4"
+  },
+  "devDependencies": {
+    "happy-dom": "21.0.3",
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "playwright-core": "1.64.1"
+  }
+}

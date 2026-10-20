@@ -137,6 +137,7 @@ test('legend has single aligned rows, 20-character names and sample-relative cha
   view.overview.samples[0].layers![1] = '1073741824';
   view.overview.samples[1].layers![1] = '2147483648';
   view.overview.samples[2].layers![1] = '3221225472';
+  view.overview.samples[2].baseline = { at: 300, layers: ['0', '2147483648'] };
   chart.setExpanded(true); chart.update(view);
   const entries = [...drawing.querySelectorAll('.band-label')];
   const names = entries.map(entry => entry.querySelector('.legend-name')!);
@@ -152,7 +153,7 @@ test('legend has single aligned rows, 20-character names and sample-relative cha
   drawing.dispatchEvent(new window.PointerEvent('pointerleave'));
   assert.equal(entries[1].querySelector('.legend-change')!.textContent, '+50.0%', 'Pointer departure restores latest even while chart retains focus');
   assert.equal(drawing.querySelectorAll('.chart-cursor line').length, 0);
-  view.overview.samples[1].layers = null; chart.update(view);
+  view.overview.samples[1].layers = null; view.overview.samples[2].baseline = null; chart.update(view);
   assert.equal(entries[1].querySelector('.legend-change')!.textContent, '—');
   window.happyDOM.abort();
 });
@@ -162,15 +163,16 @@ test('legend prefers supplied program names and uses valid recent baselines from
   const layer = view.overview.layers[1]; layer.program_name = 'A friendly program name longer than twenty';
   view.settings.change_seconds = 60;
   const sample = view.overview.samples[2]; sample.layers![1] = '150';
+  sample.baseline = { at: 536, layers: ['0', '100'] };
   view.overview.samples[1].at = 536; view.overview.samples[1].layers![1] = '100';
   chart.update(view);
   const entry = drawing.querySelectorAll('.band-label')[1];
   assert.equal([...entry.querySelector('.legend-name')!.textContent!].length, 20);
   assert.match(entry.querySelector('title')!.textContent!, /A friendly program name.*worker.exe/);
   assert.equal(entry.querySelector('.legend-change')!.textContent, '+50.0%', 'Four-second-old baseline is usable');
-  view.overview.samples[1].at = 535; chart.update(view);
+  view.overview.samples[1].at = 535; sample.baseline = null; chart.update(view);
   assert.equal(entry.querySelector('.legend-change')!.textContent, '\u2014', 'Older baselines cannot fabricate a change');
-  layer.program_name = '   '; view.overview.samples[1].at = 540; view.overview.samples[1].layers![1] = '0'; chart.update(view);
+  layer.program_name = '   '; view.overview.samples[1].at = 540; view.overview.samples[1].layers![1] = '0'; sample.baseline = { at: 540, layers: ['0', '0'] }; chart.update(view);
   assert.equal(entry.querySelector('.legend-name')!.textContent, 'worker.exe');
   assert.equal(entry.querySelector('.legend-change')!.textContent, 'New');
   sample.layers![1] = '0'; chart.update(view); assert.equal(entry.querySelector('.legend-change')!.textContent, '0.0%');
@@ -198,4 +200,21 @@ for (const kind of ['overview', 'history'] as const) test(`the paused first samp
       assert.equal(Number(drawing.querySelector('.chart-cursor circle')!.getAttribute('cx')), Number(grid.getAttribute('x2')), 'The first overview cursor uses the same zero-age coordinate');
     } else assert.equal(Number(drawing.querySelector('circle')!.getAttribute('cx')), Number(grid.getAttribute('x2')), 'The first history point uses the same zero-age coordinate');
     window.happyDOM.abort();
+});
+
+
+test('legend uses supplied retained baseline outside visible samples without widening keyboard history', () => {
+  const { window, chart, view, drawing } = setup();
+  view.settings.change_seconds = 300; view.overview.start = 301; view.overview.end = 601;
+  const sample = (at: number, value: string, before: number) => ({ ...view.overview.samples[0], at, layers: ['0', value], baseline: { at: before, layers: ['0', '100'] } });
+  view.overview.samples = [sample(303, '125', 2), sample(601, '150', 300)];
+  chart.setExpanded(true); chart.update(view);
+  const label = () => drawing.querySelectorAll('.legend-change')[1].textContent;
+  assert.equal(label(), '+50.0%');
+  chart.element.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  assert.equal(label(), '+25.0%');
+  chart.element.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  assert.equal(label(), '+25.0%', 'No extra keyboard sample is exposed');
+  drawing.dispatchEvent(new window.PointerEvent('pointerleave')); assert.equal(label(), '+50.0%');
+  window.happyDOM.abort();
 });

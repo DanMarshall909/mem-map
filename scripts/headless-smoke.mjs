@@ -399,8 +399,8 @@ try {
   assert.equal(await detailChart.locator('.chart-cursor line').count(), 0);
   await writeFile(path.join(output, 'detail-proof.json'), JSON.stringify({ source: targetSample, geometry: detailGeometry, inspectedX: sampleX(targetSample), keyboardSample: detailFrame.overview.samples[targetIndex - 1], cornerProof, iconProof }, null, 2));
   check('Expanded corner legend, age axis and accessible icons retain coherent pointer and keyboard sample inspection');
-  const overviewChoice = page.getByRole('combobox', { name: 'Overall memory view last', exact: true });
-  await overviewChoice.selectOption('300');
+  const overviewChoice = page.getByRole('group', { name: 'Overall memory view last', exact: true });
+  await overviewChoice.getByRole('radio', { name: '5m', exact: true }).check();
   await until(async () => (await view()).settings.overview_range === 300, 'main overview range uses real controller');
   if ((await view()).paused) {
     await page.getByRole('button', { name: 'Resume display', exact: true }).click();
@@ -426,9 +426,51 @@ try {
   assert(await page.locator('#process-filter').evaluate(input => document.activeElement === input), 'Ctrl+F reveals and focuses the process filter');
   assert(await page.locator('.inspector-scroll').isVisible());
   await expandOverview.click(); await backToProcesses.click(); await expandOverview.waitFor({ state: 'visible' });
-  await overviewChoice.selectOption(processState.settings.overview_range?.toString() ?? 'all');
+  await overviewChoice.getByRole('radio', { name: processState.settings.overview_range === null ? 'All' : `${processState.settings.overview_range / 60}m`, exact: true }).check();
   await until(async () => (await view()).settings.overview_range === processState.settings.overview_range, 'restore overview range');
   check('Main overview returns by Escape, button or filter shortcut without changing process state');
+  for (const [name, seconds] of [['15m', 900], ['30m', 1800], ['All', null], ['5m', 300]]) {
+    await overviewChoice.getByRole('radio', { name, exact: true }).check();
+    await until(async () => (await view()).settings.overview_range === seconds, `Overview toggle ${name}`);
+  }
+  await overviewChoice.getByRole('radio', { name: '5m', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  await until(async () => (await view()).settings.overview_range === 900, 'Overview toggle arrow keyboard navigation');
+  await page.getByRole('combobox', { name: /View scale/ }).selectOption('50');
+  await until(async () => (await view()).settings.ui_zoom === 50, 'Half scale accepted by controller');
+  assert.match(await readFile(path.join(output, 'preferences.ini'), 'utf8'), /^ui_zoom=50$/m);
+  assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize), '7px');
+  assert.equal(await page.locator('.app-header h1, .footer-counts, .chart-navigator').count(), 0);
+  const copyColor = await page.getByRole('button', { name: 'Copy snapshot to clipboard', exact: true }).evaluate(button => getComputedStyle(button).color);
+  await expandOverview.click();
+  assert.equal(copyColor, await backToProcesses.evaluate(button => getComputedStyle(button).color));
+  await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');
+  await until(async () => (await view()).settings.ui_zoom === 100, 'Dialog reference scale');
+  await page.setViewportSize({ width: 420, height: 300 });
+  const detailsButton = page.getByRole('button', { name: 'Details', exact: true });
+  await detailsButton.click();
+  const dialog = page.getByRole('dialog', { name: 'Collection details', exact: true });
+  await dialog.waitFor({ state: 'visible' });
+  const closeDetails = page.getByRole('button', { name: 'Close details', exact: true });
+  const dialogLayout = await closeDetails.evaluate(button => {
+    const box = button.getBoundingClientRect(), content = document.querySelector('.diagnostic-content');
+    return { visible: box.top >= 0 && box.bottom <= innerHeight && box.left >= 0 && box.right <= innerWidth,
+      reachable: button.contains(document.elementFromPoint(box.x + box.width/2, box.y + box.height/2)),
+      scrollable: content.scrollHeight > content.clientHeight && getComputedStyle(content).overflowY === 'auto' };
+  });
+  assert(dialogLayout.visible && dialogLayout.reachable && dialogLayout.scrollable, 'Details close stays reachable above scrollable content');
+  await page.screenshot({ path: path.join(output, 'details-small-window.png') });
+  await closeDetails.click(); await dialog.waitFor({ state: 'hidden' });
+  await detailsButton.click(); await dialog.waitFor({ state: 'visible' });
+  await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden' });
+  assert(await backToProcesses.isVisible(), 'Dialog Escape must preserve expanded overview');
+  assert(await detailsButton.evaluate(button => document.activeElement === button), 'Dialog returns focus to its opener');
+  await backToProcesses.click();
+  await page.setViewportSize({ width: 980, height: 740 });
+  await overviewChoice.getByRole('radio', { name: processState.settings.overview_range === null ? 'All' : `${processState.settings.overview_range/60}m`, exact: true }).check();
+  await until(async () => (await view()).settings.overview_range === processState.settings.overview_range, 'Restore range after toggle proof');
+  check('Overview toggles, half scale, reduced chrome and reachable dialog close work through the real headless browser', dialogLayout);
+
   await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');
   await until(async () => (await view()).settings.ui_zoom === 100, 'restore test scale');
   const preferences = await readFile(path.join(output, 'preferences.ini'), 'utf8');

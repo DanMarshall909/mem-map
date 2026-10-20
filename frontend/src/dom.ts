@@ -13,7 +13,7 @@ const icons = {
   process: 'M6 6h12v12H6ZM9 9h6v6H9ZM9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4',
   family: 'M12 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM4 16a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm16 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM7 21v-4a5 5 0 0 1 10 0v4M1 21v-2a3 3 0 0 1 6 0m10 0a3 3 0 0 1 6 0v2',
   expand: 'M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6',
-  back: 'm10 5-7 7 7 7M3 12h18', left: 'm15 5-7 7 7 7', right: 'm9 5 7 7-7 7',
+  back: 'm10 5-7 7 7 7M3 12h18',
   info: 'M12 11v6m0-10v.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
   close: 'm6 6 12 12M6 18 18 6', copy: 'M9 9h12v12H9ZM15 9V3H3v12h6',
   list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',

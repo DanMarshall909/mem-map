@@ -22,7 +22,7 @@ export interface Settings {
 }
 export interface OverviewSample {
   at: number; captured_unix_ms: Decimal; capacity: Decimal; available: Decimal | null; used: Decimal | null;
-  layers: Decimal[] | null; measured: number; observed: number; reason: string | null;
+  layers: Decimal[] | null; baseline: { at: number; layers: Decimal[] } | null; measured: number; observed: number; reason: string | null;
 }
 export interface Overview {
   start: number; end: number; recorded: number; capacity: Decimal;

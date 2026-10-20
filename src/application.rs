@@ -101,6 +101,11 @@ pub struct OverviewLayer {
     pub id: Option<String>,
 }
 #[derive(Clone, Debug, Serialize)]
+pub struct OverviewBaseline {
+    pub at: u32,
+    pub layers: Vec<String>,
+}
+#[derive(Clone, Debug, Serialize)]
 pub struct OverviewSample {
     pub at: u32,
     pub captured_unix_ms: String,
@@ -108,6 +113,7 @@ pub struct OverviewSample {
     pub available: Option<String>,
     pub used: Option<String>,
     pub layers: Option<Vec<String>>,
+    pub baseline: Option<OverviewBaseline>,
     pub measured: usize,
     pub observed: usize,
     pub reason: Option<String>,
@@ -282,7 +288,7 @@ impl Application {
         let grouping = parse_grouping(&prefs.grouping).unwrap_or(Grouping::Name);
         prefs.grouping = grouping_name(grouping).into();
         prefs.splitter_permille = prefs.splitter_permille.clamp(400, 800);
-        prefs.ui_zoom = prefs.ui_zoom.clamp(75, 200);
+        prefs.ui_zoom = prefs.ui_zoom.clamp(50, 200);
         if !valid_range(prefs.overview_range) {
             prefs.overview_range = Some(1800);
         }
@@ -568,10 +574,9 @@ impl Application {
             .iter()
             .map(|sample| (sample.at, sample.captured_unix_ms))
             .collect();
-        let overview = dashboard::overview(
-            shown,
-            self.prefs.overview_range.map_or(Range::All, Range::Last),
-        );
+        // Baselines may precede the visible plot. Keep the complete retained
+        // decomposition until the projection attaches each sample's context.
+        let overview = dashboard::overview(shown, Range::All);
         let selected = self
             .selected
             .as_ref()
@@ -708,8 +713,11 @@ impl Application {
         }
     }
     fn overview_view(&self, plot: OverviewPlot, timestamps: &BTreeMap<u32, u64>) -> Overview {
+        let start = self.prefs.overview_range.map_or(plot.start, |seconds| {
+            plot.end.saturating_sub(seconds).max(plot.start)
+        });
         Overview {
-            start: plot.start,
+            start,
             end: plot.end,
             recorded: plot.recorded,
             capacity: plot.capacity.to_string(),
@@ -723,7 +731,8 @@ impl Application {
                 .collect(),
             samples: plot
                 .samples
-                .into_iter()
+                .iter()
+                .filter(|s| s.at >= start)
                 .map(|s| OverviewSample {
                     at: s.at,
                     captured_unix_ms: timestamps
@@ -735,10 +744,29 @@ impl Application {
                     used: s.used.map(|n| n.to_string()),
                     layers: s
                         .layers
-                        .map(|values| values.into_iter().map(|n| n.to_string()).collect()),
+                        .as_ref()
+                        .map(|values| values.iter().map(|n| n.to_string()).collect()),
+                    baseline: s.at.checked_sub(self.change_seconds).and_then(|target| {
+                        let end = plot.samples.partition_point(|point| point.at <= target);
+                        plot.samples[..end]
+                            .iter()
+                            .rev()
+                            .take_while(|point| target - point.at <= 4)
+                            .find(|point| point.used.is_some() && point.layers.is_some())
+                            .map(|point| OverviewBaseline {
+                                at: point.at,
+                                layers: point
+                                    .layers
+                                    .as_ref()
+                                    .unwrap()
+                                    .iter()
+                                    .map(|n| n.to_string())
+                                    .collect(),
+                            })
+                    }),
                     measured: s.measured,
                     observed: s.observed,
-                    reason: s.reason,
+                    reason: s.reason.clone(),
                 })
                 .collect(),
         }
@@ -816,8 +844,8 @@ impl Application {
             Action::SetSplitter { value } if !(400..=800).contains(value) => {
                 return Err("Splitter must be between 400 and 800 permille".into());
             }
-            Action::SetUiZoom { value } if !(75..=200).contains(value) => {
-                return Err("UI zoom must be between 75 and 200 percent".into());
+            Action::SetUiZoom { value } if !(50..=200).contains(value) => {
+                return Err("UI zoom must be between 50 and 200 percent".into());
             }
             _ => {}
         }
@@ -1050,6 +1078,97 @@ mod tests {
             captured_unix_ms: 1_700_000_000_011 + u64::from(at) * 1000,
             processes,
             ..Default::default()
+        }
+    }
+    #[test]
+    fn overview_baselines_skip_invalid_attribution_and_never_underflow_startup() {
+        let mut app = Application::new(Preferences::default());
+        app.ingest(frame(2, vec![process(7, "Worker.exe", 100)]));
+        assert!(app.view().overview.samples[0].baseline.is_none());
+        app.ingest(frame(298, vec![process(7, "Worker.exe", 100)]));
+        let mut invalid = frame(300, vec![process(7, "Worker.exe", 999)]);
+        invalid.complete_scan = false;
+        app.ingest(invalid);
+        app.ingest(frame(601, vec![process(7, "Worker.exe", 150)]));
+        let view = app.view();
+        assert_eq!(
+            view.overview
+                .samples
+                .last()
+                .unwrap()
+                .baseline
+                .as_ref()
+                .unwrap()
+                .at,
+            298
+        );
+        app.dispatch(Action::SetChangeSeconds { value: 60 })
+            .unwrap();
+        assert!(
+            app.view()
+                .overview
+                .samples
+                .last()
+                .unwrap()
+                .baseline
+                .is_none()
+        );
+    }
+    #[test]
+    fn overview_change_baselines_use_retained_history_outside_the_plot() {
+        for baseline_at in [300, 297, 296] {
+            let mut app = Application::new(Preferences {
+                overview_range: Some(300),
+                ..Preferences::default()
+            });
+            for (at, value) in [(2, 100), (baseline_at, 100), (303, 125), (601, 150)] {
+                app.ingest(frame(at, vec![process(7, "Worker.exe", value)]));
+            }
+            let wire = serde_json::to_value(app.view()).unwrap();
+            let overview = &wire["overview"];
+            let samples = overview["samples"].as_array().unwrap();
+            assert_eq!(
+                samples
+                    .iter()
+                    .map(|s| s["at"].as_u64().unwrap())
+                    .collect::<Vec<_>>(),
+                [303, 601]
+            );
+            let band = overview["layers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .position(|l| l["name"] == "Worker.exe")
+                .unwrap();
+            assert_eq!(samples[0]["baseline"]["at"], 2);
+            assert_eq!(samples[0]["baseline"]["layers"][band], "100");
+            if baseline_at >= 297 {
+                assert_eq!(samples[1]["baseline"]["at"], baseline_at);
+                assert_eq!(samples[1]["baseline"]["layers"][band], "100");
+            } else {
+                assert!(samples[1]["baseline"].is_null());
+            }
+            app.dispatch(Action::SetPaused { value: true }).unwrap();
+            app.ingest(frame(603, vec![process(7, "Worker.exe", 900)]));
+            assert_eq!(
+                serde_json::to_value(app.view()).unwrap()["overview"],
+                *overview
+            );
+        }
+    }
+    #[test]
+    fn half_scale_survives_initialization_actions_and_invalid_boundaries() {
+        let mut app = Application::new(Preferences {
+            ui_zoom: 50,
+            ..Preferences::default()
+        });
+        assert_eq!(app.view().settings.ui_zoom, 50);
+        app.dispatch(Action::SetUiZoom { value: 100 }).unwrap();
+        app.dispatch(Action::SetUiZoom { value: 50 }).unwrap();
+        assert_eq!(app.preferences().ui_zoom, 50);
+        for value in [0, 49, 201] {
+            assert!(app.dispatch(Action::SetUiZoom { value }).is_err());
+            assert_eq!(app.view().settings.ui_zoom, 50);
         }
     }
     #[test]

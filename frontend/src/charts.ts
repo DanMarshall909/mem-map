@@ -34,7 +34,6 @@ export class MemoryChart {
   private drawing = svg('svg', { role: 'img', 'aria-hidden': 'true', preserveAspectRatio: 'xMidYMid meet' });
   private description = el('p', 'chart-description');
   private data = el('output', 'chart-data sr-only');
-  private navigator = el('div', 'chart-navigator');
   private bandLabels = svg('g', { class: 'band-labels', 'pointer-events': 'none' });
   private labels = el('div', 'chart-labels');
   private labelToggle: HTMLButtonElement;
@@ -78,9 +77,8 @@ export class MemoryChart {
     });
     this.data.id = `${kind}-chart-data`; this.data.setAttribute('aria-live', 'off');
     this.element.setAttribute('aria-describedby', this.data.id);
-    this.labels.append(this.description, this.navigator);
+    this.labels.append(this.description);
     this.element.append(this.drawing, this.labelToggle, this.labels, this.data);
-    this.navigator.append(iconButton('Previous sample', 'left', () => this.step(-1)), iconButton('Next sample', 'right', () => this.step(1)));
     this.element.addEventListener('keydown', e => {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); this.step(e.key === 'ArrowLeft' ? -1 : 1); }
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -184,10 +182,9 @@ export class MemoryChart {
     const capacity = sample?.capacity ?? overview.capacity;
     const labelWidth = Math.min(420 * scale, right - left - 20 * scale);
     const interval = this.view!.settings.change_seconds;
-    const target = (sample?.at ?? 0) - interval;
-    // Match the backend's recent-baseline rule: last valid sample at/before
-    // the target, no older than two 2-second collection intervals.
-    const baseline = [...overview.samples].reverse().find(point => point.at <= target && point.at >= target - 4 && point.used !== null && point.layers !== null);
+    // The Rust projection supplies the retained baseline even when it falls
+    // outside the visible plot. Missing/stale readings stay unavailable.
+    const baseline = sample?.baseline;
     if (this.expanded) this.bandLabels.removeAttribute('display');
     else this.bandLabels.setAttribute('display', 'none');
     overview.layers.forEach((layer, index) => {
@@ -196,7 +193,7 @@ export class MemoryChart {
       const amount = sample?.used == null ? null : sample.layers?.[index] ?? null;
       const percentage = share(amount, capacity), before = baseline?.layers?.[index] ?? null;
       const delta = amount === null || before === null ? null : (BigInt(amount) - BigInt(before)).toString();
-      const change = changePercent({ value: delta, reason: baseline ? `Baseline ${age((sample?.at ?? 0) - baseline.at)} before sample` : `No valid baseline for ${age(interval)} change in displayed history` }, { value: amount, measured: amount === null ? 0 : 1, total: 1, enumeration_complete: amount !== null, reason: null });
+      const change = changePercent({ value: delta, reason: baseline ? `Baseline ${age((sample?.at ?? 0) - baseline.at)} before sample` : `No valid baseline for ${age(interval)} change in retained history` }, { value: amount, measured: amount === null ? 0 : 1, total: 1, enumeration_complete: amount !== null, reason: null });
       const y = top + 10 * scale + index * 24 * scale, x = left + 10 * scale;
       const fullName = layer.program_name?.trim() || layer.name;
       const letters = [...fullName], name = letters.length > 20 ? letters.slice(0, 19).join('') + '\u2026' : fullName;

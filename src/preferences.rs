@@ -72,7 +72,7 @@ impl Preferences {
                     }
                 }
                 "ui_zoom" => {
-                    if let Ok(v @ 75..=200) = value.parse() {
+                    if let Ok(v @ 50..=200) = value.parse() {
                         result.ui_zoom = v;
                     }
                 }
@@ -149,7 +149,7 @@ mod tests {
             overview_range: None,
             history_range: Some(900),
             from_zero: false,
-            ui_zoom: 175,
+            ui_zoom: 50,
         };
         wanted.save(&path).unwrap();
         assert_eq!(Preferences::load(&path).unwrap(), wanted);

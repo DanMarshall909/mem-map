@@ -114,7 +114,7 @@ Start with 32–34 px compact rows and 46–50 px expanded rows. Keep controls a
 
 ### Application title
 
-Keep **Mem Map** at the upper left. Remove “Navigation and zoom” from the application’s visible title if it is development text.
+Omit the in-app Mem Map heading; retain the native window title and controls.
 
 Preserve normal window movement, resizing and native window controls.
 
@@ -153,11 +153,7 @@ Display:
 
 ### Live status
 
-Place this before the header actions:
-
-**Live · Updating every 2 seconds**
-
-Use the actual configured interval. Show a clear alternate state when the collector stops or becomes unavailable; “Live” should reflect successful collection.
+Omit routine live/update-interval text. Keep explicit paused and collector-unavailable/error feedback before the header actions.
 
 ### Pause display
 
@@ -175,7 +171,7 @@ On resume, advance the current readings and overview to the latest completed sna
 
 ### Copy snapshot to clipboard
 
-Use a green copy icon at the far right, named **Copy snapshot to clipboard**.
+Use an orange-accent copy icon matching Back to processes at the far right, named **Copy snapshot to clipboard**.
 Copy the existing CSV contract as text from one coherent displayed snapshot;
 describe the filtered/offscreen scope in the tooltip. No file destination or
 save dialog appears. Report copy success/failure through the existing notice.
@@ -437,7 +433,7 @@ Immediately beneath it, show:
 
 These values must agree with the header’s displayed snapshot.
 
-Place **View last: 30m** at the upper right. Use the same range choices as the selected-process history: 5m, 15m, 30m and All retained history.
+Use a single-selection toggle group at the upper right: **5m · 15m · 30m · All**, with a retained accessible group name and native radio keyboard operation. Preserve the selected range through live updates and expansion.
 
 ### Chart type and axes
 
@@ -515,9 +511,9 @@ annotations appear on hover, keyboard focus or an info-button tap.
 
 ### Legend and interaction
 
-Show the top-left, single-line legend only when the overview is expanded, in the same order as its layers. Align figures in columns, cap names at 20 characters and retain full names in help. There is no sidebar or below-plot legend.
+Show the top-left, single-line legend only when the overview is expanded, in the same order as its layers. Align figures in columns, cap names at 20 characters and retain full names in help. There is no sidebar or below-plot legend. Calculate change percentages using valid retained baselines independently of the visible plot window: last valid attributed sample at/before the comparison target, at most four seconds old. Never invent an early-session or missing baseline. Keep visible samples and keyboard navigation scoped to the chosen plot range.
 
-Determine compactness from each chart's own width relative to UI text scale. At compact widths, reveal axis annotations and concise sample help on hover, keyboard focus or an info-button tap. The expanded legend remains an overlay; the sidebar never displays it. A viewport-clamped sample-help popover sits beside the plot when possible without changing plot/data coordinates or blocking plot input. Escape, outside pointer input and leaving by keyboard dismiss this help. Preserve keyboard sample/band navigation and accessible precise descriptions without a visible Chart data disclosure.
+Determine compactness from each chart's own width relative to UI text scale. At compact widths, reveal axis annotations and concise sample help on hover, keyboard focus or an info-button tap. The expanded legend remains an overlay; the sidebar never displays it. A viewport-clamped sample-help popover sits beside the plot when possible without changing plot/data coordinates or blocking plot input. Escape, outside pointer input and leaving by keyboard dismiss this help. Preserve keyboard sample/band navigation and accessible precise descriptions without a visible Chart data disclosure or visible previous/next sample buttons.
 
 Hovering a band or selecting it with Up/Down while the chart is focused should expose precise accessible/help information:
 
@@ -673,17 +669,7 @@ Do not fill unobserved periods with invented zeroes.
 
 ## 10. Footer and diagnostics
 
-Replace the compressed status string with three readable groups:
-
-**92 executable groups**
-
-**549 processes observed this session**
-
-**171 with unavailable data · Details**
-
-When filtering, use a count such as **12 of 92 executable groups**. Change the first label with the grouping mode.
-
-Distinguish current unavailable readings from historical failures. The displayed count and **Details** view should use the same scope.
+Omit the routine executable-group/session/unavailable counts from the main footer. Retain collection scope and coverage inside Details.
 
 Make **Details** an orange, underlined action. Its panel should contain:
 
@@ -694,7 +680,7 @@ Make **Details** an orange, underlined action. Its panel should contain:
 - Omitted-track information.
 - Mem Map’s own memory footprint.
 
-This retains useful diagnostics from the original header and footer without giving them the same prominence as system usage.
+Keep Close in a fixed modal heading and scroll only its content, so the close action stays reachable in small windows and with long diagnostic lists. Close and Escape dismiss the modal, restore opener focus and preserve the current workspace.
 
 At the far right, retain:
 
@@ -734,7 +720,7 @@ Implement:
 
 Expose names, values, sort direction, selected state, hierarchy and expanded state through the platform accessibility APIs. Make chart values available without requiring a mouse.
 
-Retain the existing UI zoom capability. Move its visible controls into a compact **View** menu or status control if necessary, and preserve existing shortcuts. **Ctrl+0** can restore normal application scale.
+Allow 50%, 75%, 100%, 125%, 150%, 175% and 200% application scale; persist 50% and use it as the lower keyboard/wheel bound. Move its visible controls into a compact **View** menu or status control if necessary, and preserve existing shortcuts. **Ctrl+0** can restore normal application scale.
 
 Keep application scaling and chart navigation distinct. Verify the layout with increased text scaling; allow wrapping and scrolling rather than shrinking text.
 

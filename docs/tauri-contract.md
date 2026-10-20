@@ -52,7 +52,7 @@ Rows contain `id`, `parent_id`, `depth`, `has_children`, `expanded`, `selected`,
 
 `overview`: existing OverviewPlot shape, with layers { `name`, `id` (nullable) },
 samples { `at`, `capacity`, `available`, `used`, `layers`, `measured`, `observed`,
-`reason`, `captured_unix_ms` }. Byte values are decimal strings; unknown layers remain null.
+`reason`, `captured_unix_ms`, `baseline` }. Each baseline is null or { `at`, `layers` } with exact decimal byte strings. Byte values are decimal strings; unknown layers remain null.
 `history`: nullable existing HistorySeries shape, points { `at`, `reading`, `captured_unix_ms` }.
 Sample timestamps are exact decimal strings from retained Rust observations.
 `history_viewport`: `follow`, `manual_end`, `manual_width`, `reset_enabled`.
@@ -159,7 +159,7 @@ before the target, no older than four seconds (two collection intervals). Missin
 baselines/attribution stay unavailable; zero baselines use the table's existing
 New/zero convention. Red indicates growth, green decline, white no change. These
 changes describe the represented bands, including residual RAM, and do not reuse
-filtered table rows. A shorter displayed range may lack the requested baseline.
+filtered table rows. Baselines come from all retained displayed history, independently of the visible chart range. Rust attaches the last valid attributed sample at/before the requested comparison time, at most four seconds old. Early-session and expired/missing history still yield unavailable changes.
 
 Pointer departure restores the latest displayed sample regardless of focus.
 Keyboard arrows still provide deliberate sample/band inspection. A pointer-
@@ -196,3 +196,17 @@ Grouping retains native radio inputs and existing domain values, with distinct
 name/path/tree/process/family SVG icons. Explicit accessible names, label tooltips,
 selection and focus styling preserve mouse and keyboard operation. History/axis
 radio labels remain textual; only grouping presentation changes.
+
+
+## Overview controls (MM-014)
+
+The overview range uses named single-selection radio toggles for 5m/15m/30m/All,
+including native arrow-key operation. Display scale accepts and persists 50–200%,
+with 25-point keyboard/wheel steps and Ctrl+0 restoring 100%.
+
+The app heading, routine live/interval message, footer counts and visible sample
+arrows are omitted; keyboard chart inspection, paused/error status and collection
+diagnostics remain. Snapshot copy shares the overview back action's orange accent.
+Details keeps its Close action in a fixed header above a scrolling content body.
+Both Close and Escape dismiss the modal and restore focus without leaving the
+expanded overview. All automated verification remains headless.

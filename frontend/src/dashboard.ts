@@ -30,7 +30,7 @@ export class Dashboard {
   private exited: ReturnType<typeof checkbox>;
   private compact: ReturnType<typeof checkbox>;
   private changeChoice: ReturnType<typeof select>;
-  private overviewRange: ReturnType<typeof select>;
+  private overviewRange: ReturnType<typeof radios<string>>;
   private metric: ReturnType<typeof select>;
   private ranges: ReturnType<typeof radios<string>>;
   private axis: ReturnType<typeof radios<string>>;
@@ -52,7 +52,6 @@ export class Dashboard {
   private coverage = el('p', 'coverage');
   private tableStatus = el('p', 'table-status');
   private barsHelp = el('p', 'bars-help');
-  private footerCounts = el('div', 'footer-counts');
   private notice = el('p', 'notice');
   private zoom: ReturnType<typeof select>;
   private diagnostics = el('dialog', 'diagnostics');
@@ -65,13 +64,13 @@ export class Dashboard {
   constructor(send: (action: Action) => void, native: (action: 'copy' | 'snapshot') => void) {
     this.send = send; this.table = new ProcessTreeGrid(send);
     this.overview = new MemoryChart('overview', send); this.history = new MemoryChart('history', send);
-    const title = el('h1', '', 'Mem Map'); const summary = el('div', 'header-summary');
+    const summary = el('div', 'header-summary');
     this.progress.max = 100; this.progress.setAttribute('aria-label', 'System physical memory used');
     summary.append(this.system, this.progress, this.available, this.live);
     this.pause = iconButton('Pause display', 'pause', () => { if (this.view) send({ type: 'set_paused', value: !this.view.paused }); }, 'accent');
-    const snapshotCopy = iconButton('Copy snapshot to clipboard', 'copy', () => native('snapshot'), 'primary');
+    const snapshotCopy = iconButton('Copy snapshot to clipboard', 'copy', () => native('snapshot'), 'accent');
     snapshotCopy.title = 'Copy the displayed, filtered snapshot as CSV, including records outside the viewport; expansion does not change copied membership';
-    const actions = el('div', 'header-actions'); actions.append(this.pause, snapshotCopy); this.header.append(title, summary, actions);
+    const actions = el('div', 'header-actions'); actions.append(this.pause, snapshotCopy); this.header.append(summary, actions);
     const workspace = el('div', 'workspace'); const left = this.processPanel; left.setAttribute('aria-label', 'Process table');
     const toolbar = el('div', 'toolbar panel');
     this.group = radios('Group by', [['name', 'Name'], ['path', 'Path'], ['tree', 'Process tree'], ['process', 'Individual processes'], ['family', 'Family']], value => send({ type: 'set_grouping', value }), { name: 'tag', path: 'folder', tree: 'tree', process: 'process', family: 'family' });
@@ -93,10 +92,10 @@ export class Dashboard {
     const right = el('div', 'right-pane'); const overviewPanel = el('section', 'panel overview-panel');
     overviewPanel.id = 'overall-memory-panel';
     const overviewHeading = el('div', 'panel-heading'); overviewHeading.append(el('h2', '', 'Overall memory usage'));
-    this.overviewRange = select('View last:', rangeChoices.map(([v, name]) => [v, v === 'all' ? 'All retained history' : name]), value => send({ type: 'set_overview_range', seconds: value === 'all' ? null : Number(value) }));
+    this.overviewRange = radios('Overall memory view last', rangeChoices, value => send({ type: 'set_overview_range', seconds: value === 'all' ? null : Number(value) }));
     this.overviewToggle = iconButton('Expand overview', 'expand', () => this.setOverviewExpanded(!this.overviewExpanded), 'accent');
     this.overviewToggle.title = 'Make overall memory the main view'; this.overviewToggle.setAttribute('aria-controls', overviewPanel.id);
-    this.overviewRange.input.setAttribute('aria-label', 'Overall memory view last'); overviewHeading.append(this.overviewRange.label, this.overviewToggle); overviewPanel.append(overviewHeading, this.overview.element);
+    this.overviewRange.group.querySelector('legend')!.classList.add('sr-only'); overviewHeading.append(this.overviewRange.group, this.overviewToggle); overviewPanel.append(overviewHeading, this.overview.element);
     this.inspector.setAttribute('aria-label', 'Selected process inspector'); this.inspector.tabIndex = -1;
     const inspectorHeading = el('div', 'inspector-heading'); this.title.id = 'selected-title';
     this.inspector.setAttribute('aria-labelledby', this.title.id);
@@ -118,15 +117,17 @@ export class Dashboard {
     right.append(overviewPanel, this.inspector); this.splitter.tabIndex = 0; this.splitter.setAttribute('role', 'separator'); this.splitter.setAttribute('aria-label', 'Resize process and memory panes'); this.splitter.setAttribute('aria-orientation', 'vertical');
     this.splitter.setAttribute('aria-valuemin', '40'); this.splitter.setAttribute('aria-valuemax', '80');
     workspace.append(left, this.splitter, right);
-    this.zoom = select('View scale:', [75, 100, 125, 150, 175, 200].map(n => [String(n), `${n}%`]), value => send({ type: 'set_ui_zoom', value: Number(value) }));
+    this.zoom = select('View scale:', [50, 75, 100, 125, 150, 175, 200].map(n => [String(n), `${n}%`]), value => send({ type: 'set_ui_zoom', value: Number(value) }));
     const details = iconButton('Details', 'info', () => this.openDiagnostics(), 'link'); details.setAttribute('aria-haspopup', 'dialog');
     const footerBottom = el('div', 'footer-bottom'); const recording = el('span', '', 'Recording continues when display is paused'); recording.dataset.recording = 'true'; footerBottom.append(recording, this.notice, this.zoom.label);
     this.notice.setAttribute('role', 'status'); this.notice.setAttribute('aria-live', 'polite');
-    this.footer.append(this.footerCounts, details, footerBottom);
+    this.footer.append(details, footerBottom);
     const diagnosticHeading = el('h2', '', 'Collection details'); diagnosticHeading.id = 'diagnostic-title'; this.diagnostics.setAttribute('aria-labelledby', diagnosticHeading.id);
-    this.diagnostics.append(diagnosticHeading, this.diagnosticText, iconButton('Close details', 'close', () => this.closeDiagnostics()));
+    const diagnosticHeader = el('div', 'diagnostic-heading');
+    diagnosticHeader.append(diagnosticHeading, iconButton('Close details', 'close', () => this.closeDiagnostics()));
+    this.diagnostics.append(diagnosticHeader, this.diagnosticText);
     this.diagnostics.addEventListener('close', () => { this.diagnosticOpen = false; });
-    this.diagnostics.addEventListener('cancel', () => { this.diagnosticOpen = false; });
+    this.diagnostics.addEventListener('cancel', event => { event.preventDefault(); this.closeDiagnostics(); });
     this.element.append(this.header, workspace, this.footer, this.diagnostics);
     this.element.dataset.ready = 'false'; this.installShortcuts(); this.installSplitter();
     window.addEventListener('resize', () => this.updateLayout()); this.updateLayout();
@@ -147,12 +148,13 @@ export class Dashboard {
     if (percent === null) this.progress.removeAttribute('value'); else this.progress.value = percent;
     this.progress.setAttribute('aria-valuetext', `${system} · Available ${bytes(latest?.available ?? null)}`);
     const status = view.collection.status.toLowerCase(); const live = status === 'live';
-    text(this.live, view.paused ? `Display paused at ${dateTime(view.displayed_unix_ms)} · ${live ? 'Recording continues' : `Collector ${status}`}` : live ? 'Live · Updating every 2 seconds' : `Collector ${status}${view.collection.error ? ` · ${view.collection.error}` : ''}`);
+    text(this.live, view.paused ? `Display paused at ${dateTime(view.displayed_unix_ms)} · ${live ? 'Recording continues' : `Collector ${status}`}` : live ? '' : `Collector ${status}${view.collection.error ? ` · ${view.collection.error}` : ''}`);
+    this.live.hidden = live && !view.paused;
     this.live.title = `Last collection ${view.collection.age_seconds}s ago`; setIcon(this.pause, view.paused ? 'Resume display' : 'Pause display', view.paused ? 'play' : 'pause');
     this.group.set(view.settings.grouping); this.exited.input.checked = view.settings.show_exited; this.compact.input.checked = view.settings.compact;
     if (!this.editingFilter && document.activeElement !== this.filter) this.filter.value = view.settings.filter;
     this.clear.hidden = !this.filter.value; this.changeChoice.input.value = String(view.settings.change_seconds);
-    this.overviewRange.input.value = view.settings.overview_range?.toString() ?? 'all'; this.metric.input.value = view.settings.metric;
+    this.overviewRange.set(view.settings.overview_range?.toString() ?? 'all'); this.metric.input.value = view.settings.metric;
     this.ranges.set(view.settings.history_range?.toString() ?? 'all'); this.axis.set(view.settings.from_zero ? 'zero' : 'fit');
     this.follow.input.checked = view.history_viewport.follow; this.reset.disabled = !view.history_viewport.reset_enabled;
     this.zoom.input.value = String(view.settings.ui_zoom);
@@ -183,8 +185,6 @@ export class Dashboard {
     text(this.changeLabel, `Change over ${view.settings.change_seconds / 60}m`);
     text(this.coverage, selected ? `${selected.private.measured} of ${selected.private.total} processes measured${partial(selected.private) ? ' · Partial' : ''}${selected.private.reason ? ` · ${selected.private.reason}` : ''}${selected.change.reason ? ` · Change: ${selected.change.reason}` : ''} · ${duration(selected.recorded)} recorded; peak uses the last 30 minutes` : '');
     this.overview.update(view); this.history.update(view);
-    const unit = ({ name: 'executable groups', path: 'path groups', tree: 'processes', process: 'processes', family: 'families' } as const)[view.settings.grouping];
-    text(this.footerCounts, `${view.table.matching_roots}${view.settings.filter ? ` of ${view.table.total_roots}` : ''} ${unit} · ${view.diagnostics.observed_session} processes observed this session · ${view.diagnostics.current_unavailable} with unavailable data`);
     const recording = this.footer.querySelector('[data-recording]')!; text(recording, live ? 'Recording continues when display is paused' : `Recording ${status}`);
     if (view.notice !== this.lastNotice && view.notice) this.showNotice(view.notice);
     if (this.diagnosticOpen) this.renderDiagnostics();
@@ -232,7 +232,7 @@ export class Dashboard {
       if (e.key === 'Escape' && this.overviewExpanded && !editing && !this.diagnosticOpen) { e.preventDefault(); this.setOverviewExpanded(false); return; }
       if (!this.view) return;
       if (e.ctrlKey && ['+', '=', '-', '0'].includes(e.key)) {
-        e.preventDefault(); const zoom = e.key === '0' ? 100 : Math.max(75, Math.min(200, this.view.settings.ui_zoom + (e.key === '-' ? -25 : 25))); this.send({ type: 'set_ui_zoom', value: zoom }); return;
+        e.preventDefault(); const zoom = e.key === '0' ? 100 : Math.max(50, Math.min(200, this.view.settings.ui_zoom + (e.key === '-' ? -25 : 25))); this.send({ type: 'set_ui_zoom', value: zoom }); return;
       }
       if (editing) return;
       if (['+', '-', '1', '2', '3', 'F2', 'F3', 'F4', 'F5', 'F8'].includes(e.key)) this.setOverviewExpanded(false);
@@ -244,6 +244,6 @@ export class Dashboard {
       if (e.key === 'F5') { e.preventDefault(); this.send({ type: 'set_metric', value: this.view.settings.metric === 'private_commit' ? 'private_working_set' : 'private_commit' }); }
       if (e.key === 'F8') { e.preventDefault(); this.send({ type: 'select_process_parent' }); }
     });
-    this.element.addEventListener('wheel', e => { if (e.ctrlKey && this.view) { e.preventDefault(); this.send({ type: 'set_ui_zoom', value: Math.max(75, Math.min(200, this.view.settings.ui_zoom + (e.deltaY < 0 ? 25 : -25))) }); } }, { passive: false });
+    this.element.addEventListener('wheel', e => { if (e.ctrlKey && this.view) { e.preventDefault(); this.send({ type: 'set_ui_zoom', value: Math.max(50, Math.min(200, this.view.settings.ui_zoom + (e.deltaY < 0 ? 25 : -25))) }); } }, { passive: false });
   }
 }

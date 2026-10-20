@@ -53,7 +53,7 @@ test('main overview uses the available panel height and preserves its range cont
   const drawing = panel.querySelector('.memory-chart > svg')!;
   control('Expand overview')?.click();
   assert(parseFloat(drawing.style.height) > 450, 'The main plot must use available height rather than the sidebar cap');
-  const range = panel.querySelector('select')!; range.value = '300'; range.dispatchEvent(new window.Event('change', { bubbles: true }));
+  const range = panel.querySelector<HTMLInputElement>('fieldset input[value="300"]'); assert(range, 'Overview range must be a toggle group'); range.click();
   assert.deepEqual(calls, [{ type: 'set_overview_range', seconds: 300 }]);
   panelHeight = 420; view.settings.overview_range = 300; view.settings.ui_zoom = 125; dashboard.update(view);
   assert(parseFloat(drawing.style.height) > 300, 'Main-view sizing follows the current available panel and text scale');
@@ -100,5 +100,58 @@ test('icon actions keep accessible names, tooltips and state changes', () => {
   view.paused = true; dashboard.update(view);
   assert(control('Resume display')); assert.equal(control('Resume display')!.title, 'Resume display');
   control('Expand overview')!.click(); assert(control('Back to processes'));
+  window.happyDOM.abort();
+});
+
+
+test('overview chrome retains useful status without routine clutter or sample arrow buttons', () => {
+  const { window, dashboard, view, control } = setup();
+  assert(!dashboard.element.querySelector('h1'), 'App title is omitted');
+  assert(!dashboard.element.querySelector('.footer-counts'), 'Session counts are omitted');
+  assert.equal(control('Previous sample'), undefined); assert.equal(control('Next sample'), undefined);
+  assert.equal(dashboard.element.querySelector<HTMLElement>('.live-status')!.hidden, true);
+  assert.equal(control('Copy snapshot to clipboard')!.classList.contains('accent'), true);
+  assert.equal(control('Copy snapshot to clipboard')!.classList.contains('primary'), false);
+  view.paused = true; dashboard.update(view);
+  assert.equal(dashboard.element.querySelector<HTMLElement>('.live-status')!.hidden, false);
+  assert.match(dashboard.element.querySelector('.live-status')!.textContent!, /paused/i);
+  view.paused = false; view.collection.status = 'failed'; view.collection.error = 'Sample unavailable'; dashboard.update(view);
+  assert.match(dashboard.element.querySelector('.live-status')!.textContent!, /Sample unavailable/);
+  window.happyDOM.abort();
+});
+
+
+test('details close stays in a separate header while long content scrolls', () => {
+  const { window, dashboard, view, control } = setup();
+  view.diagnostics.failures = Array.from({ length: 100 }, (_, i) => `Failure ${i}`); dashboard.update(view);
+  control('Details')!.click();
+  const dialog = dashboard.element.querySelector('dialog')!;
+  const close = control('Close details')!;
+  assert.equal(dialog.open, true);
+  assert.equal(close.parentElement?.className, 'diagnostic-heading');
+  assert.equal(close.parentElement?.nextElementSibling?.className, 'diagnostic-content');
+  assert.equal(window.getComputedStyle(dialog).overflow, 'hidden');
+  assert.equal(window.getComputedStyle(dialog.querySelector('.diagnostic-content')!).overflow, 'auto');
+  close.click(); assert.equal(dialog.open, false);
+  control('Details')!.click(); assert.equal(dialog.open, true);
+  dialog.dispatchEvent(new window.Event('cancel', { cancelable: true })); assert.equal(dialog.open, false);
+  window.happyDOM.abort();
+});
+
+
+test('50 percent scale is selectable and is the shortcut and wheel lower bound', () => {
+  const { window, calls, dashboard, view } = setup();
+  const zoom = dashboard.element.querySelector<HTMLSelectElement>('select[aria-label="View scale"]')!;
+  assert([...zoom.options].some(option => option.value === '50'));
+  zoom.value = '50'; zoom.dispatchEvent(new window.Event('change', { bubbles: true }));
+  assert.deepEqual(calls.at(-1), { type: 'set_ui_zoom', value: 50 });
+  for (const scale of [75, 50]) {
+    view.settings.ui_zoom = scale; dashboard.update(view);
+    dashboard.element.dispatchEvent(new window.KeyboardEvent('keydown', { key: '-', ctrlKey: true, bubbles: true }));
+    assert.deepEqual(calls.at(-1), { type: 'set_ui_zoom', value: 50 });
+    dashboard.element.dispatchEvent(new window.WheelEvent('wheel', { deltaY: 1, ctrlKey: true, bubbles: true }));
+    assert.deepEqual(calls.at(-1), { type: 'set_ui_zoom', value: 50 });
+  }
+  assert.equal(document.documentElement.style.fontSize, '7px');
   window.happyDOM.abort();
 });

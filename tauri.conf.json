@@ -8,7 +8,7 @@
     "windows": [{ "label": "main", "create": false, "title": "Mem Map", "width": 1440, "height": 900, "minWidth": 760, "minHeight": 540, "backgroundColor": "#1f2326" }],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; frame-src 'none'; base-uri 'none'",
-      "capabilities": [{ "identifier": "main-local", "description": "Bundled local dashboard only; no generic desktop APIs.", "windows": ["main"], "permissions": ["allow-get-view", "allow-dispatch", "allow-copy-paths", "allow-export-csv"] }]
+      "capabilities": [{ "identifier": "main-local", "description": "Bundled local dashboard only; no generic desktop APIs.", "windows": ["main"], "permissions": ["allow-get-view", "allow-dispatch", "allow-copy-paths", "allow-copy-snapshot"] }]
     }
   },
   "bundle": { "active": false, "icon": ["assets/mem-map.ico"] }

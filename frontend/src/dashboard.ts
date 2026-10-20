@@ -39,8 +39,7 @@ export class Dashboard {
   private title = el('h2', '', 'Select a process');
   private counts = el('p', 'selection-counts');
   private hiddenSelection = el('p', 'selection-warning');
-  private path = el('input');
-  private pathPreview = el('span', 'path-preview');
+  private path = el('div', 'path-display path-preview');
   private pathPrefix = el('span', 'path-prefix');
   private pathFilename = el('span', 'path-filename');
   private paths = el('details', 'paths');
@@ -63,19 +62,19 @@ export class Dashboard {
   private editingFilter = false;
   private splitter = el('div', 'splitter');
   private lastNotice = '';
-  constructor(send: (action: Action) => void, native: (action: 'copy' | 'export') => void) {
+  constructor(send: (action: Action) => void, native: (action: 'copy' | 'snapshot') => void) {
     this.send = send; this.table = new ProcessTreeGrid(send);
     this.overview = new MemoryChart('overview', send); this.history = new MemoryChart('history', send);
     const title = el('h1', '', 'Mem Map'); const summary = el('div', 'header-summary');
     this.progress.max = 100; this.progress.setAttribute('aria-label', 'System physical memory used');
     summary.append(this.system, this.progress, this.available, this.live);
     this.pause = iconButton('Pause display', 'pause', () => { if (this.view) send({ type: 'set_paused', value: !this.view.paused }); }, 'accent');
-    const exportButton = iconButton('Export CSV', 'export', () => native('export'), 'primary');
-    exportButton.title = 'Export the displayed, filtered snapshot, including records outside the viewport; expansion does not change export membership';
-    const actions = el('div', 'header-actions'); actions.append(this.pause, exportButton); this.header.append(title, summary, actions);
+    const snapshotCopy = iconButton('Copy snapshot to clipboard', 'copy', () => native('snapshot'), 'primary');
+    snapshotCopy.title = 'Copy the displayed, filtered snapshot as CSV, including records outside the viewport; expansion does not change copied membership';
+    const actions = el('div', 'header-actions'); actions.append(this.pause, snapshotCopy); this.header.append(title, summary, actions);
     const workspace = el('div', 'workspace'); const left = this.processPanel; left.setAttribute('aria-label', 'Process table');
     const toolbar = el('div', 'toolbar panel');
-    this.group = radios('Group by', [['name', 'Name'], ['path', 'Path'], ['tree', 'Process tree'], ['process', 'Individual processes'], ['family', 'Family']], value => send({ type: 'set_grouping', value }));
+    this.group = radios('Group by', [['name', 'Name'], ['path', 'Path'], ['tree', 'Process tree'], ['process', 'Individual processes'], ['family', 'Family']], value => send({ type: 'set_grouping', value }), { name: 'tag', path: 'folder', tree: 'tree', process: 'process', family: 'family' });
     this.group.group.title = 'Family preserves the original launched-family grouping; Process tree shows actual ancestry';
     const filterLabel = el('div', 'filter-field'); this.filter.type = 'search'; this.filter.placeholder = 'Name, path or PID'; this.filter.id = 'process-filter';
     const filterCaption = el('label', '', 'Filter:'); filterCaption.htmlFor = this.filter.id; this.clear = iconButton('Clear filter', 'close', () => this.clearFilter(), 'quiet');
@@ -102,9 +101,9 @@ export class Dashboard {
     const inspectorHeading = el('div', 'inspector-heading'); this.title.id = 'selected-title';
     this.inspector.setAttribute('aria-labelledby', this.title.id);
     this.show = iconButton('Show processes', 'list', () => send({ type: 'show_selected_processes' })); inspectorHeading.append(this.title, this.counts, this.show);
-    const pathRow = el('div', 'path-row'); const pathLabel = el('label', 'path-label'); pathLabel.append(el('span', '', 'Executable path:'));
-    this.path.readOnly = true; this.path.setAttribute('aria-label', 'Full executable path'); this.path.spellcheck = false;
-    const pathDisplay = el('div', 'path-display'); this.pathPreview.setAttribute('aria-hidden', 'true'); this.pathPreview.append(this.pathPrefix, this.pathFilename); pathDisplay.append(this.path, this.pathPreview); pathLabel.append(pathDisplay);
+    const pathRow = el('div', 'path-row'); const pathLabel = el('div', 'path-label'); pathLabel.append(el('span', '', 'Executable path:'));
+    this.path.tabIndex = 0; this.path.setAttribute('role', 'group'); this.path.setAttribute('aria-label', 'Full executable path');
+    this.path.append(this.pathPrefix, this.pathFilename); pathLabel.append(this.path);
     this.copy = iconButton('Copy path', 'copy', () => native('copy')); pathRow.append(pathLabel, this.copy);
     this.paths.append(this.pathSummary, this.pathList);
     const summaryValues = el('dl', 'summary-values');
@@ -166,13 +165,12 @@ export class Dashboard {
     this.show.hidden = !selected || selected.pid !== null;
     const fullPaths = selected?.paths ?? [];
     const pathValue = fullPaths.length === 1 ? fullPaths[0] : selected ? `${selected.path_count} executable paths${selected.paths_complete ? '' : ' · coverage incomplete'}` : '';
-    if (this.path.value !== pathValue) this.path.value = pathValue;
     this.path.title = fullPaths.join('\n'); this.path.setAttribute('aria-description', fullPaths.join('; '));
     const split = fullPaths.length === 1 ? Math.max(pathValue.lastIndexOf('\\'), pathValue.lastIndexOf('/')) : -1;
     text(this.pathPrefix, fullPaths.length === 1 ? pathValue.slice(0, Math.max(0, split)) : pathValue);
     text(this.pathFilename, fullPaths.length === 1 ? pathValue.slice(Math.max(0, split)) : '');
     this.pathFilename.hidden = fullPaths.length !== 1;
-    this.pathPreview.classList.toggle('has-filename', fullPaths.length === 1);
+    this.path.classList.toggle('has-filename', fullPaths.length === 1);
     this.copy.setAttribute('aria-label', selected && !selected.paths_complete ? 'Copy known paths' : selected && selected.path_count > 1 ? 'Copy all paths' : 'Copy path'); this.copy.title = this.copy.getAttribute('aria-label')!; this.copy.disabled = !fullPaths.length;
     this.paths.hidden = fullPaths.length < 2; text(this.pathSummary, `${fullPaths.length} known executable paths${selected?.paths_complete ? '' : ' · coverage incomplete'}`);
     const existing = [...this.pathList.children]; fullPaths.forEach((path, i) => { let li = existing[i]; if (!li) { li = el('li'); this.pathList.append(li); } text(li, path); }); existing.slice(fullPaths.length).forEach(li => li.remove());

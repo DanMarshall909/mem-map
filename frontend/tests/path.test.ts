@@ -23,12 +23,12 @@ test('the path preview protects the complete executable tail independently of a 
     assert.equal(window.getComputedStyle(tail).overflowWrap, 'anywhere', 'A long executable name wraps instead of being cut off');
     assert.equal(window.getComputedStyle(tail).flexShrink, '0', 'Directory text yields before a filename that already fits needs to wrap');
     assert.notEqual(window.getComputedStyle(tail).textOverflow, 'ellipsis');
-    const input = dashboard.inspector.querySelector<HTMLInputElement>('input[readonly]')!;
-    assert.equal(input.value, original); input.focus();
-    assert.ok(document.activeElement === input, 'The complete original path accepts focus'); assert.equal(input.value, original);
-    const focusRule = [...document.styleSheets[0].cssRules].find(rule => 'selectorText' in rule && rule.selectorText === '.path-display input:focus + .path-preview') as CSSStyleRule;
-    assert.equal(focusRule.style.visibility, 'hidden', 'Keep the preview layout while focus exposes the original input; actual focus styling is checked in WebView2');
-    input.blur();
+    assert(!dashboard.inspector.querySelector('input[readonly], textarea, [contenteditable=true]'), 'Path is static text, not a textbox');
+    assert.equal(preview.getAttribute('aria-description'), original);
+    assert.equal(preview.textContent, original);
+    assert.equal(window.getComputedStyle(preview).userSelect, 'text');
+    preview.focus(); assert.equal(document.activeElement === preview, true);
+
   }
   [...dashboard.inspector.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Copy path')!.click();
   assert.deepEqual(native, ['copy']); window.happyDOM.abort();

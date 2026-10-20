@@ -8,13 +8,13 @@ product behavior; its native painting mechanism is superseded.
 ## Ownership and wire format
 
 `src/application.rs` owns the UI-neutral controller and serializable projections.
-`src/desktop.rs` owns Tauri, collection and native copy/save boundaries.
+`src/desktop.rs` owns Tauri, collection and native clipboard boundaries.
 `frontend/` owns DOM, CSS, SVG, keyboard/pointer input and local scroll positions.
 Rust owns selection, expansion, grouping, sorting, filtering, paused history and
 chart viewport state. No UI calculations may replace domain calculations.
 
 Commands are `get_view() -> View`, `dispatch(action: Action) -> View`,
-`copy_paths() -> string` and `export_csv() -> string`. Copy/export resolve the
+`copy_paths() -> string` and `copy_snapshot() -> string`. Path/snapshot copy commands resolve the
 current displayed selection/snapshot inside Rust; callers supply no text or path.
 Only bundled local main-window content may invoke commands. The frontend polls
 get_view, serializes actions, applies complete revisions and ignores stale ones.
@@ -91,8 +91,8 @@ clipboard readback, CSV save dialog and Windows UIA. At the user's subsequent
 request, all maintained automated tests now run headlessly. A test-only stdio
 host uses the unchanged Rust application/sampler; Playwright renders the built
 frontend in a headless browser and checks selection, filtering, hierarchy,
-pause/recording, resize/zoom, copy/export data and Chromium accessibility.
-Copy/export adapters are private to the test runner. They do not establish
+pause/recording, resize/zoom, clipboard data and Chromium accessibility.
+Clipboard adapters are private to the test runner. They do not establish
 native clipboard/dialog correctness, Tauri command authorization or Windows UIA;
 the existing Rust origin test still covers its explicit origin policy. No
 production API or Tauri permission is added for testing.
@@ -172,3 +172,27 @@ bracket, below-plot legend or visible Chart data disclosure. Precise description
 remain available to assistive technology and through hover help. Compact axis
 annotations retain hover/focus/tap behavior. Icon actions retain accessible names,
 tooltips and existing commands. The backend and headless-only test policy remain.
+
+## Clipboard and compact controls (MM-013)
+
+The header's Copy snapshot to clipboard icon requests `copy_snapshot` with no
+payload. Rust captures its existing displayed, filtered CSV under the application
+lock and uses the same private UTF-16 Windows clipboard boundary as path copying.
+No filename or clipboard text comes from the WebView. The export command, file
+write and save dialog are removed from the native handler and granted capability;
+`Application::export_csv` remains the serializer. Success/failure uses the notice.
+
+The test-only host produces a private snapshot-copy effect from that same
+serializer. Headless tests parse it independently and check paused timestamp,
+unique identities and raw fields. They never change the system clipboard; native
+clipboard acquisition/ownership behavior is not claimed as headless acceptance.
+
+Executable paths are focusable, selectable static text rather than a textbox.
+Original directory text yields to the protected filename; full original text is
+available in the DOM, accessible description, tooltip and existing path-copy
+command. Groups with multiple paths retain the list and explicit copy-all action.
+
+Grouping retains native radio inputs and existing domain values, with distinct
+name/path/tree/process/family SVG icons. Explicit accessible names, label tooltips,
+selection and focus styling preserve mouse and keyboard operation. History/axis
+radio labels remain textual; only grouping presentation changes.

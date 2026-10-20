@@ -52,10 +52,10 @@ fn invoke(
                 "effect": {"kind": "copy", "text": paths.join("\r\n")}}),
             )
         }
-        "export_csv" => {
+        "copy_snapshot" => {
             let csv = String::from_utf8(app.export_csv()?).map_err(|e| e.to_string())?;
             Ok(
-                json!({"value": "Saved headless snapshot", "effect": {"kind": "export", "text": csv}}),
+                json!({"value": "Copied snapshot as CSV", "effect": {"kind": "snapshot-copy", "text": csv}}),
             )
         }
         _ => Err("Unsupported test command".into()),

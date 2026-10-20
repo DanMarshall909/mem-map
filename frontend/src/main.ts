@@ -14,7 +14,7 @@ client = new ViewClient<View, Action>({
   getView: () => invoke<View>('get_view'),
   dispatch: action => invoke<View>('dispatch', { action }),
   copyPaths: () => invoke<string>('copy_paths'),
-  exportCsv: () => invoke<string>('export_csv'),
+  copySnapshot: () => invoke<string>('copy_snapshot'),
 }, (view, action) => dashboard.update(view, action?.type === 'show_selected_processes' || action?.type === 'select_process_parent'), error => dashboard.showNotice(error));
 mount.append(dashboard.element);
 void client.refresh();

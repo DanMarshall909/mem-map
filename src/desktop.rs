@@ -7,7 +7,6 @@ use mem_map::{
 };
 use std::{
     io,
-    mem::{size_of, zeroed},
     path::PathBuf,
     sync::{Arc, Mutex, mpsc},
     thread,
@@ -19,10 +18,6 @@ use windows_sys::Win32::{
     System::{
         DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData},
         Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
-    },
-    UI::Controls::Dialogs::{
-        CommDlgExtendedError, GetSaveFileNameW, OFN_NOCHANGEDIR, OFN_OVERWRITEPROMPT,
-        OFN_PATHMUSTEXIST, OPENFILENAMEW,
     },
 };
 
@@ -92,16 +87,13 @@ fn copy_paths(window: WebviewWindow, state: State<'_, Desktop>) -> Result<String
     ))
 }
 #[tauri::command]
-fn export_csv(window: WebviewWindow, state: State<'_, Desktop>) -> Result<String, String> {
+fn copy_snapshot(window: WebviewWindow, state: State<'_, Desktop>) -> Result<String, String> {
     let hwnd = authorize(&window)?;
-    // Capture displayed data before the dialog; recording may continue while
-    // the user chooses a location without changing this export's snapshot.
-    let bytes = state.lock()?.export_csv()?;
-    let Some(path) = save_dialog(hwnd).map_err(|e| e.to_string())? else {
-        return Ok("Export cancelled".into());
-    };
-    std::fs::write(&path, bytes).map_err(|e| format!("Export failed: {e}"))?;
-    Ok(format!("Saved {}", path.display()))
+    // Capture the displayed, filtered snapshot under the application lock.
+    // No clipboard payload is accepted from the WebView.
+    let csv = String::from_utf8(state.lock()?.export_csv()?).map_err(|e| e.to_string())?;
+    copy_clipboard(hwnd, &csv).map_err(|e| format!("Copy failed: {e}"))?;
+    Ok("Copied snapshot as CSV".into())
 }
 
 fn wide(text: &str) -> Vec<u16> {
@@ -144,33 +136,6 @@ fn copy_clipboard(hwnd: HWND, text: &str) -> io::Result<()> {
         })();
         CloseClipboard();
         result
-    }
-}
-fn save_dialog(hwnd: HWND) -> io::Result<Option<PathBuf>> {
-    let mut path = vec![0u16; 32768];
-    let default = wide("mem-map-snapshot.csv");
-    path[..default.len()].copy_from_slice(&default);
-    let filter = wide("CSV snapshot (*.csv)\0*.csv\0");
-    let extension = wide("csv");
-    // SAFETY: pointers reference sized live buffers for this modal call.
-    unsafe {
-        let mut dialog: OPENFILENAMEW = zeroed();
-        dialog.lStructSize = size_of::<OPENFILENAMEW>() as u32;
-        dialog.hwndOwner = hwnd;
-        dialog.lpstrFilter = filter.as_ptr();
-        dialog.lpstrFile = path.as_mut_ptr();
-        dialog.nMaxFile = path.len() as u32;
-        dialog.lpstrDefExt = extension.as_ptr();
-        dialog.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-        if GetSaveFileNameW(&mut dialog) != 0 {
-            let end = path.iter().position(|c| *c == 0).unwrap_or(path.len());
-            return Ok(Some(PathBuf::from(String::from_utf16_lossy(&path[..end]))));
-        }
-        let error = CommDlgExtendedError();
-        if error != 0 {
-            return Err(io::Error::other(format!("Save dialog failed: {error}")));
-        }
-        Ok(None)
     }
 }
 
@@ -229,7 +194,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             preferences_path,
         })
         .invoke_handler(tauri::generate_handler![
-            get_view, dispatch, copy_paths, export_csv
+            get_view,
+            dispatch,
+            copy_paths,
+            copy_snapshot
         ])
         .setup(|app| {
             let mut builder = WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?

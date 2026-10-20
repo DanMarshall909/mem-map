@@ -5,7 +5,7 @@ fn main() {
                 "get_view",
                 "dispatch",
                 "copy_paths",
-                "export_csv",
+                "copy_snapshot",
             ]),
         );
         tauri_build::try_build(attributes).expect("build the local Tauri dashboard");

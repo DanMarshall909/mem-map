@@ -12,7 +12,8 @@ readings come from one completed collection snapshot.
   measured private working sets and residual system usage complete the stack.
   Filtering, sorting and selection do not replace the bands. Failed system
   samples leave gaps; uncertain attribution retains a neutral system total.
-- **Name**, **Path**, **Process tree** and **Individual processes** show executable
+- Grouping uses icon radios with named tooltips and keyboard selection.
+  **Name**, **Path**, **Process tree** and **Individual processes** show executable
   groups, complete-path groups, actual ancestry and flat instances. **App families**
   retains the earlier launcher-bounded grouping. Process-tree rows show each
   process's own measurements. Filtering retains matching descendants' ancestors
@@ -50,12 +51,14 @@ readings come from one completed collection snapshot.
 - Selected history has independent metric, range, Y-axis and Follow latest
   controls. Wheel zoom and dragging navigate time. Reset view restores following
   while retaining metric and requested range. Missing observations remain gaps.
-- **Export CSV** exports distinct filtered instances from the displayed snapshot,
+- **Copy snapshot to clipboard** copies CSV text for distinct filtered instances from the displayed snapshot,
   including offscreen records. Expansion cannot duplicate aggregate values. The
   identity, elapsed-time and raw KiB columns are retained, with capture timestamp,
   exact byte values, lifecycle, measurement reason and provisional generation
-  appended. Unknown creation times and readings stay blank. Paused exports use
-  the paused snapshot.
+  appended. Unknown creation times and readings stay blank. Paused copies use
+  the paused snapshot. No file dialog opens.
+- Executable paths are static selectable text, with the filename protected from
+  directory truncation. The copy-path action preserves the full original path.
 - **Details** contains collection failures, coverage, last successful collection,
   retained samples, omitted-track information and the monitor's own footprint.
 
@@ -125,7 +128,7 @@ All automated tests run headlessly. The slow smoke builds a test-only Rust host
 without Tauri and renders the built frontend in headless Microsoft Edge. It uses
 the real Rust sampler/controller for pause/recording, filtering, grouping,
 keyboard/pointer interactions, viewport resizing and browser accessibility.
-Copy/export adapters verify full paths and CSV data privately: no OS clipboard,
+Private path/snapshot clipboard adapters verify full paths and CSV data privately: no OS clipboard,
 native dialog, window activation or Windows UI Automation is used. Actual native
 shell, clipboard and dialog checks remain historical migration evidence, not
 claims made by this headless suite. The removed repeated-scroll test stays removed.

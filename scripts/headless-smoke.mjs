@@ -48,7 +48,7 @@ async function invoke(command, args = {}) {
   const result = await request(command, args);
   if (result.effect) {
     // These private adapters deliberately never touch clipboard or native dialogs.
-    if (result.effect.kind === 'export') await writeFile(path.join(output, 'paused.csv'), result.effect.text);
+    if (result.effect.kind === 'snapshot-copy') await writeFile(path.join(output, 'paused.csv'), result.effect.text);
     else assert.equal(result.effect.kind, 'copy');
     effects.push(result.effect);
   }
@@ -125,7 +125,7 @@ try {
   const ownedRow = first.table.rows.find(row => row.name.toLowerCase() === 'headless-test-host.exe');
   assert(ownedRow, 'Live sampler must observe the owned headless Rust host');
   await invoke('dispatch', { action: { type: 'select_row', id: ownedRow.id } });
-  await until(async () => (await page.getByRole('textbox', { name: 'Full executable path', exact: true }).inputValue()).toLowerCase().endsWith('headless-test-host.exe'), 'owned host selection rendered');
+  await until(async () => (await page.getByRole('group', { name: 'Full executable path', exact: true }).getAttribute('aria-description')).toLowerCase().endsWith('headless-test-host.exe'), 'owned host selection rendered');
   await page.screenshot({ path: path.join(output, 'initial.png') });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   assert(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1));
@@ -145,15 +145,18 @@ try {
   await until(() => effects.some(effect => effect.kind === 'copy'), 'headless copy result');
   assert.equal(effects.find(effect => effect.kind === 'copy').text, paused.selected.paths.join('\r\n'));
   check('Copy button preserves full original paths through an isolated adapter');
-  await page.getByRole('button', { name: 'Export CSV', exact: true }).click();
-  await until(() => effects.some(effect => effect.kind === 'export'), 'headless CSV export');
+  await page.getByRole('button', { name: 'Copy snapshot to clipboard', exact: true }).click();
+  await until(() => effects.some(effect => effect.kind === 'snapshot-copy'), 'headless snapshot clipboard');
+  await page.getByRole('status').filter({hasText:'Copied snapshot as CSV'}).waitFor({state:'visible'});
+  await assert.rejects(invoke('copy_snapshot', {text:'untrusted payload'}), /Expected empty command arguments/);
+  await assert.rejects(invoke('export_csv'), /Unsupported test command/);
   const csv = await readFile(path.join(output, 'paused.csv'), 'utf8');
   const records = parseCsv(csv);
   assert(records.length > 0);
   assert(records.every(row => row.elapsed_seconds === String(paused.displayed_at) && row.snapshot_unix_ms === paused.displayed_unix_ms));
   assert.equal(new Set(records.map(row => [row.pid,row.creation_filetime,row.provisional_generation].join('/'))).size, records.length);
   assert(csv.includes('private_working_set_bytes'));
-  check('CSV data preserves frozen timestamp and distinct identities', { bytes: csv.length, records: records.length });
+  check('Clipboard CSV preserves frozen timestamp and distinct identities', { bytes: csv.length, records: records.length });
   await page.getByRole('button', { name: /Resume display/, exact: true }).click();
   await until(async () => !(await view()).paused, 'resume');
   const filter = page.getByRole('searchbox', { name: /Filter/ });
@@ -168,7 +171,12 @@ try {
     await radio.click();
     await until(async () => { const frame = await view(); return frame.settings.grouping === value && frame.table.rows.length > 0 && await radio.isChecked(); }, `group ${grouping}`);
   }
-  check('All five groupings through the real command boundary');
+  const nameGrouping = page.getByRole('radio', { name: 'Name', exact: true });
+  await nameGrouping.focus(); await nameGrouping.press('ArrowRight');
+  await until(async () => (await view()).settings.grouping === 'path' && await page.getByRole('radio', {name:'Path',exact:true}).isChecked(), 'native arrow-key grouping');
+  assert(await page.locator('.toolbar .segments label').evaluateAll(labels => labels.every(label => label.title && !label.textContent && label.querySelector('svg[aria-hidden=true]'))));
+  await nameGrouping.click(); await until(async () => (await view()).settings.grouping === 'name', 'restore name grouping');
+  check('All five icon groupings retain tooltips, radio semantics and native arrow-key commands');
   const dpr = await page.evaluate(() => devicePixelRatio);
   const layout = async () => page.evaluate(() => {
     const rect = selector => { const el = document.querySelector(selector), box = el.getBoundingClientRect(); return { top: box.top, bottom: box.bottom, height: el.clientHeight, width: el.clientWidth }; };
@@ -192,7 +200,7 @@ try {
       const box = preview.getBoundingClientRect(); const range = document.createRange(); range.selectNodeContents(tail);
       const rects = [...range.getClientRects()].map(r => ({left:r.left,right:r.right,top:r.top,bottom:r.bottom}));
       const leading = document.createRange(); leading.setStart(prefix.firstChild, 0); leading.setEnd(prefix.firstChild, Math.min(3, prefix.textContent.length));
-      return { protectedTail: true, value: preview.previousElementSibling.value, tail:tail.textContent, original,
+      return { protectedTail: true, value: preview.textContent, tail:tail.textContent, original,
         visible: getComputedStyle(preview).visibility !== 'hidden' && rects.length > 0 && rects.every(r => r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1),
         beginningVisible: leading.getBoundingClientRect().width <= prefix.clientWidth + 1 };
     }, selectedPath[0]);
@@ -200,13 +208,13 @@ try {
     assert.equal(pathProof.value, selectedPath[0]);
     assert.equal(pathProof.tail, selectedPath[0].slice(Math.max(selectedPath[0].lastIndexOf('\\'), selectedPath[0].lastIndexOf('/'))));
     assert(pathProof.visible && pathProof.beginningVisible, `${label}: original beginning and complete executable filename must remain painted inside the path field`);
-    const pathInput = page.getByRole('textbox', { name: 'Full executable path', exact: true });
-    const pathHeight = await page.locator('.path-display').evaluate(el => el.clientHeight);
-    await pathInput.focus();
-    assert.equal(await pathInput.inputValue(), selectedPath[0]);
-    assert.equal(await page.locator('.path-preview').evaluate(el => getComputedStyle(el).visibility), 'hidden');
-    await pathInput.evaluate(el => el.blur());
-    assert.equal(await page.locator('.path-display').evaluate(el => el.clientHeight), pathHeight, 'Focus must not collapse a wrapped filename');
+    assert.equal(await inspector.locator('input[readonly], textarea, [contenteditable=true]').count(), 0, 'Executable path is static text');
+    const pathText = page.getByRole('group', { name: 'Full executable path', exact: true });
+    const pathHeight = await pathText.evaluate(el => el.clientHeight);
+    await pathText.focus(); assert.equal(await pathText.textContent(), selectedPath[0]);
+    assert.equal(await pathText.getAttribute('aria-description'), selectedPath[0]);
+    assert.equal(await pathText.evaluate(el => getComputedStyle(el).userSelect), 'text');
+    assert.equal(await pathText.evaluate(el => el.clientHeight), pathHeight, 'Focus preserves the static path layout');
     pathLayoutProofs.push({ label, ...pathProof });
     await writeFile(path.join(output, 'path-layout.json'), JSON.stringify(pathLayoutProofs, null, 2));
   };
@@ -453,7 +461,7 @@ try {
   await writeFile(path.join(output, 'report.json'), JSON.stringify({ result: failure ? 'FAIL' : 'PASS', executable, beforeHash, afterHash, started,
     duration_seconds: (Date.now() - started.getTime()) / 1000, command: process.argv, cwd: process.cwd(), pid: child?.pid,
     checks, cleanup, browserUrl, frontendAssets, error: failure && String(failure.stack || failure), stderr,
-    boundary: 'Headless browser and real Rust controller/sampler; private copy/export adapters. No native shell, OS clipboard, save dialog or Windows UIA claim.' }, null, 2));
+    boundary: 'Headless browser and real Rust controller/sampler; private path/snapshot clipboard adapters. No native shell, OS clipboard, save dialog or Windows UIA claim.' }, null, 2));
   console.log(`Evidence: ${output}`);
 }
 if (failure) throw failure;

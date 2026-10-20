@@ -79,7 +79,7 @@ Define shared resources instead of assigning colours separately to individual co
 |---|---|---|
 | Window background | `#202327` | Application canvas |
 | Panel background | `#282D32` | Table and inspector surfaces |
-| Input background | `#202327` | Search, dropdowns and path field |
+| Input background | `#202327` | Search and dropdowns |
 | Subtle divider | `#42494F` | Essential separators and resize affordances |
 | Control boundary | `#727C84` | Inputs, checkboxes and other boundaries needed to identify controls |
 | Primary text | `#ECEFF1` | Names, values and important labels |
@@ -173,15 +173,18 @@ Define the behaviour precisely:
 
 On resume, advance the current readings and overview to the latest completed snapshot. Preserve selection, expansion and filters. The selected chart should advance only if its **Follow latest** option is enabled.
 
-### Export CSV
+### Copy snapshot to clipboard
 
-Keep **Export CSV** at the far right as a green action button.
+Use a green copy icon at the far right, named **Copy snapshot to clipboard**.
+Copy the existing CSV contract as text from one coherent displayed snapshot;
+describe the filtered/offscreen scope in the tooltip. No file destination or
+save dialog appears. Report copy success/failure through the existing notice.
 
-Preserve the existing CSV contract where possible. Export from one coherent snapshot, and describe the export scope in the button’s tooltip.
-
-For a currently undefined scope, use the current filtered data, including records outside the viewport. Expansion and scrolling must not accidentally change which records are exported or duplicate aggregate values.
-
-While the display is paused, export the displayed snapshot. Include its timestamp and retain raw numeric memory values rather than exporting only formatted strings.
+Use current filtered data including records outside the viewport. Expansion and
+scrolling must not change membership or duplicate aggregate values. While paused,
+copy the displayed snapshot, including its timestamp and raw numeric memory
+values. Rust owns the payload; callers provide neither clipboard text nor a path.
+Keep the separate full-path copy action.
 
 ---
 
@@ -193,7 +196,7 @@ Place these controls above the table, keeping their scope visually attached to i
 
 Replace the existing Name / Path / Family / PID button collection with a **single-selection segmented control**:
 
-**Name · Path · Process tree · Individual processes**
+Use distinct icons for **Name**, **Path**, **Process tree**, **Individual processes** and **Family**. Retain these names as accessible radio labels and descriptive tooltips.
 
 Default to **Name**.
 
@@ -573,7 +576,7 @@ The action should expand the selected group in the table and bring its members i
 
 ### Path field
 
-Use a selectable, read-only field containing the executable path.
+Use selectable, focusable static text containing the executable path, not an editable or read-only textbox. Keep its full original text in the accessible description and copy action.
 
 Apply middle truncation when needed so the beginning and executable filename remain visible:
 
@@ -585,7 +588,7 @@ If a group contains several paths, show **3 executable paths** and provide acces
 
 ### Copy path
 
-Add **Copy path** beside the field.
+Add the **Copy path** icon beside the static display, with its accessible name and tooltip.
 
 Copy the full underlying path, including any text hidden by ellipsis, and show a brief **Path copied** confirmation.
 

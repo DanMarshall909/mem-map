@@ -2,7 +2,7 @@ export interface Bridge<V, A> {
   getView(): Promise<V>;
   dispatch(action: A): Promise<V>;
   copyPaths(): Promise<string>;
-  exportCsv(): Promise<string>;
+  copySnapshot(): Promise<string>;
 }
 
 /** Owns IPC ordering; DOM consumers receive complete, increasing revisions. */
@@ -39,7 +39,7 @@ export class ViewClient<V extends { revision: number }, A> {
   async send(action: A): Promise<void> {
     await this.enqueue(async () => { this.apply(await this.bridge.dispatch(action), action); });
   }
-  async native(action: 'copy' | 'export'): Promise<string | undefined> {
-    return this.enqueue(async () => action === 'copy' ? this.bridge.copyPaths() : this.bridge.exportCsv());
+  async native(action: 'copy' | 'snapshot'): Promise<string | undefined> {
+    return this.enqueue(async () => action === 'copy' ? this.bridge.copyPaths() : this.bridge.copySnapshot());
   }
 }

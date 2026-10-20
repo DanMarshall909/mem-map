@@ -126,7 +126,7 @@ test('path aggregates retain original identity, clipboard action and accessible 
   view.table.rows[0].detail = long; view.selected!.paths = [long, 'D:\\Other\\worker.exe']; view.selected!.path_count = 2; dashboard.update(view);
   assert.match(dashboard.table.element.querySelector('[data-row-id="name:worker"]')!.textContent!, /original long directory/);
   const copy = [...dashboard.inspector.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'Copy all paths')!; copy.click(); assert.deepEqual(native, ['copy']);
-  assert.equal(dashboard.inspector.querySelector('input[readonly]')!.getAttribute('aria-description'), `${long}; D:\\Other\\worker.exe`);
+  assert.equal(dashboard.inspector.querySelector('.path-preview')!.getAttribute('aria-description'), `${long}; D:\\Other\\worker.exe`);
   assert.ok(dashboard.inspector.textContent!.includes(long));
   window.happyDOM.abort();
 });

@@ -90,7 +90,7 @@ test('keyboard commands return to visible process controls and Escape respects c
 
 test('icon actions keep accessible names, tooltips and state changes', () => {
   const { window, calls, dashboard, view, control } = setup();
-  for (const name of ['Pause display', 'Export CSV', 'Expand overview', 'Show processes', 'Copy path', 'Reset view', 'Details', 'Close details']) {
+  for (const name of ['Pause display', 'Copy snapshot to clipboard', 'Expand overview', 'Show processes', 'Copy path', 'Reset view', 'Details', 'Close details']) {
     const action = control(name); assert(action, name);
     assert(action.title.length > 0, name + ' has a tooltip');
     assert.equal(action.querySelector('svg')!.getAttribute('aria-hidden'), 'true');

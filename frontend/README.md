@@ -5,10 +5,13 @@ uses only the four commands in `docs/tauri-contract.md`. No fixture data is bund
 with the application. Test fixtures live under `tests/`.
 
 `npm run test:fast` runs DOM/IPC-ordering tests. `npm run build` checks TypeScript
-and produces `dist/` for the Tauri build. `npm run test:slow -- <executable> <output>`
-delegates to the repository's actual Tauri/WebView2 acceptance runner; build the
-desktop executable first. Browser fixtures do not establish native rendering,
-Windows UIA, clipboard or CSV correctness.
+and produces `dist/` for the Tauri build. `npm run test:slow` builds a test-only
+Rust host and runs the production bundle in headless Edge. `npm run test:all`
+combines both lanes. The slow lane uses real Windows sampling and Rust controller
+state through stdio, with private copy/export adapters and isolated preferences.
+It opens no Tauri window or save dialog and never touches the OS clipboard.
+It verifies browser accessibility, rather than Windows UIA. Native-shell
+integration remains a separate, historical migration boundary.
 
 Dependencies are pinned in `package-lock.json`. On this low-space Windows
 worktree, `node_modules` is a junction to

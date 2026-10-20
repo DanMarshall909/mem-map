@@ -13,4 +13,6 @@ if ($Lane -in 'fast', 'all') {
 if ($Lane -in 'slow', 'all') {
     & $driver -CargoArgs @('test', '--no-default-features', '--locked', '--test', 'windows_live', '--', '--ignored')
     if ($LASTEXITCODE) { exit $LASTEXITCODE }
+    & (Join-Path $PSScriptRoot 'smoke.ps1')
+    if ($LASTEXITCODE) { exit $LASTEXITCODE }
 }

@@ -86,11 +86,16 @@ no horizontal overflow at ordinary supported sizes. Sticky headers and reserved
 scrollbar gutters protect content. All controls use native HTML semantics;
 treegrid and charts provide keyboard navigation and textual readings.
 
-Desktop evidence includes actual Tauri/WebView2 collection, pause/resume,
-selection, filtering, hierarchy,
-resize/zoom, clipboard readback and CSV. Browser fixture tests alone cannot prove
-the desktop rendering boundary. Legacy GDI production UI and HWND-only smoke
-checks are removed after replacement is verified.
+Historical migration evidence includes actual Tauri/WebView2, native resizing,
+clipboard readback, CSV save dialog and Windows UIA. At the user's subsequent
+request, all maintained automated tests now run headlessly. A test-only stdio
+host uses the unchanged Rust application/sampler; Playwright renders the built
+frontend in a headless browser and checks selection, filtering, hierarchy,
+pause/recording, resize/zoom, copy/export data and Chromium accessibility.
+Copy/export adapters are private to the test runner. They do not establish
+native clipboard/dialog correctness, Tauri command authorization or Windows UIA;
+the existing Rust origin test still covers its explicit origin policy. No
+production API or Tauri permission is added for testing.
 
 At constrained window sizes or enlarged text, regions stack in normal document
 flow with a usable table viewport and a bounded inspector. Ordinary desktop

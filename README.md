@@ -93,21 +93,31 @@ imports with the current Windows bindings despite a successful link.
 ```powershell
 .\scripts\build.ps1
 .\scripts\check.ps1 fast  # Rust domain/controller and fast DOM/IPC contracts
-.\scripts\check.ps1 slow  # real Windows allocation, identity and handle lifetime
+.\scripts\check.ps1 slow  # Windows sampler + headless browser journeys
 .\scripts\check.ps1 all
 .\scripts\cargo.ps1 fmt --check
 .\scripts\cargo.ps1 -CargoArgs @('clippy', '--all-targets', '--', '-D', 'warnings')
 .\scripts\smoke.ps1
 ```
 
-The slow desktop smoke launches the compiled Tauri application with an isolated
-WebView2 profile and test-owned preference file. Playwright connects to its local
-debugging port for pause/recording, filtering, grouping, zoom and native window
-resizing. The repeated-scroll regression was removed at the user's request;
-the old native Windows drawing surface has been replaced. A separate
-Windows client reads UI Automation, the actual clipboard and the CSV save dialog.
-The debugging port is enabled only by the test launch environment. Captures can
-contain local process paths and are kept under `%LOCALAPPDATA%\mem-map-build\evidence`.
+All automated tests run headlessly. The slow smoke builds a test-only Rust host
+without Tauri and renders the built frontend in headless Microsoft Edge. It uses
+the real Rust sampler/controller for pause/recording, filtering, grouping,
+keyboard/pointer interactions, viewport resizing and browser accessibility.
+Copy/export adapters verify full paths and CSV data privately: no OS clipboard,
+native dialog, window activation or Windows UI Automation is used. Actual native
+shell, clipboard and dialog checks remain historical migration evidence, not
+claims made by this headless suite. The removed repeated-scroll test stays removed.
+
+`check.ps1 all` includes every fast and slow lane; `smoke.ps1` runs only the
+headless browser journeys. `npm run test:all` in `frontend` combines its fast and
+slow lanes. Installed Edge is the default browser; set `MEMMAP_BROWSER_CHANNEL`
+or `MEMMAP_BROWSER_EXECUTABLE` for another compatible Chromium installation.
+Missing browsers fail without downloading or falling back to a visible browser.
+Test preferences, CSV and screenshots use an isolated directory under
+`%LOCALAPPDATA%\mem-map-build\evidence`; these can contain local process paths.
+See [headless validation](docs/headless-validation.md) for the current evidence
+and the native integration boundary it does not cover.
 
 The accepted redesign is in [the specification](docs/system-memory-spec.md).
 The Tauri migration is tracked in [MM-008](docs/issues/resolved/memory/MM-008-tauri-ui.md)

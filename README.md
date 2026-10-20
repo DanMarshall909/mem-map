@@ -29,6 +29,10 @@ readings come from one completed collection snapshot.
 - At narrow chart widths, labels appear on hover, keyboard focus or the info
   button. The plot keeps its width while the labels float beside it. Escape or
   moving focus away dismisses them; roomy charts keep their labels inline.
+- **Expand overview** makes Overall memory usage the main workspace, using the
+  available width and height. **Back to processes** or Escape restores the table
+  and inspector. Ctrl+F returns directly to the process filter. The view choice
+  lasts for the current session; collection, pause and range controls keep working.
 - **Pause display** freezes displayed readings, ordering and chart endpoints while
   recording continues. Selection, filtering and full-path copying remain usable.
   Resume advances to the latest completed snapshot. A history chart with

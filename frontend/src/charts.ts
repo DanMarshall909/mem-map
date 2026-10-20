@@ -28,6 +28,7 @@ export class MemoryChart {
   private labels = el('div', 'chart-labels');
   private labelToggle: HTMLButtonElement;
   private compact = false;
+  private expanded = false;
   private pointerInside = false;
   private pinned = false;
   private dismissed = false;
@@ -57,7 +58,7 @@ export class MemoryChart {
     });
     window.addEventListener('scroll', () => { if (this.compact && !this.labels.hidden) this.positionLabels(); }, { capture: true, passive: true });
     this.element.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && this.compact) {
+      if (e.key === 'Escape' && this.compact && !this.labels.hidden) {
         e.preventDefault(); e.stopPropagation(); this.element.focus({ preventScroll: true });
         this.dismissLabels();
       }
@@ -96,6 +97,7 @@ export class MemoryChart {
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.draw()).observe(this.element);
   }
   update(view: View): void { this.view = view; this.draw(); this.updateReadout(); }
+  setExpanded(value: boolean): void { this.expanded = value; this.draw(); }
   private dismissLabels(): void { this.pinned = false; this.dismissed = true; this.updateLabels(); }
   private updateLabels(): void {
     const visible = !this.compact || !this.dismissed && (this.pinned || this.pointerInside || this.element.contains(document.activeElement));
@@ -170,7 +172,8 @@ export class MemoryChart {
       const overhead = [...this.element.children].filter(node => node !== this.drawing && node !== this.labelToggle && !this.compact).reduce((sum, node) => {
         const style = window.getComputedStyle(node); return sum + node.getBoundingClientRect().height + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
       }, 0) + (panel?.querySelector('.panel-heading')?.getBoundingClientRect().height ?? 0) + 28 * scale;
-      height = this.element.closest('.reflow') ? 200 * scale : Math.max((this.compact ? 168 : 112) * scale, Math.min((this.compact ? 360 : 200) * scale, (pane?.clientHeight || 760 * scale) * .45 - overhead));
+      height = this.expanded ? Math.max(112 * scale, (panel?.clientHeight || 760 * scale) - overhead)
+        : this.element.closest('.reflow') ? 200 * scale : Math.max((this.compact ? 168 : 112) * scale, Math.min((this.compact ? 360 : 200) * scale, (pane?.clientHeight || 760 * scale) * .45 - overhead));
     }
     const left = (this.compact ? 12 : 52) * scale, right = width - (this.compact ? 12 : this.kind === 'overview' ? 145 : 18) * scale, top = 25 * scale, bottom = height - 34 * scale;
     this.plot = { width, left, right };

@@ -12,6 +12,10 @@ export class Dashboard {
   private view: View | null = null;
   private send: (action: Action) => void;
   private overview: MemoryChart;
+  private overviewExpanded = false;
+  private overviewToggle: HTMLButtonElement;
+  private processPanel = el('section', 'process-panel');
+  private returnPosition = { tableTop: 0, tableLeft: 0, inspectorTop: 0 };
   private history: MemoryChart;
   private header = el('header', 'app-header');
   private footer = el('footer', 'app-footer');
@@ -69,7 +73,7 @@ export class Dashboard {
     const exportButton = button('Export CSV', () => native('export'), 'primary');
     exportButton.title = 'Export the displayed, filtered snapshot, including records outside the viewport; expansion does not change export membership';
     const actions = el('div', 'header-actions'); actions.append(this.pause, exportButton); this.header.append(title, summary, actions);
-    const workspace = el('div', 'workspace'); const left = el('section', 'process-panel'); left.setAttribute('aria-label', 'Process table');
+    const workspace = el('div', 'workspace'); const left = this.processPanel; left.setAttribute('aria-label', 'Process table');
     const toolbar = el('div', 'toolbar panel');
     this.group = radios('Group by', [['name', 'Name'], ['path', 'Path'], ['tree', 'Process tree'], ['process', 'Individual processes'], ['family', 'Family']], value => send({ type: 'set_grouping', value }));
     this.group.group.title = 'Family preserves the original launched-family grouping; Process tree shows actual ancestry';
@@ -88,9 +92,12 @@ export class Dashboard {
     const options = el('div', 'toolbar-options'); options.append(this.exited.label, this.compact.label, this.changeChoice.label);
     toolbar.append(this.group.group, filterLabel, options); left.append(toolbar, this.table.element, this.tableStatus, this.barsHelp);
     const right = el('div', 'right-pane'); const overviewPanel = el('section', 'panel overview-panel');
+    overviewPanel.id = 'overall-memory-panel';
     const overviewHeading = el('div', 'panel-heading'); overviewHeading.append(el('h2', '', 'Overall memory usage'));
     this.overviewRange = select('View last:', rangeChoices.map(([v, name]) => [v, v === 'all' ? 'All retained history' : name]), value => send({ type: 'set_overview_range', seconds: value === 'all' ? null : Number(value) }));
-    this.overviewRange.input.setAttribute('aria-label', 'Overall memory view last'); overviewHeading.append(this.overviewRange.label); overviewPanel.append(overviewHeading, this.overview.element);
+    this.overviewToggle = button('Expand overview', () => this.setOverviewExpanded(!this.overviewExpanded), 'accent');
+    this.overviewToggle.title = 'Make overall memory the main view'; this.overviewToggle.setAttribute('aria-controls', overviewPanel.id);
+    this.overviewRange.input.setAttribute('aria-label', 'Overall memory view last'); overviewHeading.append(this.overviewRange.label, this.overviewToggle); overviewPanel.append(overviewHeading, this.overview.element);
     this.inspector.setAttribute('aria-label', 'Selected process inspector'); this.inspector.tabIndex = -1;
     const inspectorHeading = el('div', 'inspector-heading'); this.title.id = 'selected-title';
     this.inspector.setAttribute('aria-labelledby', this.title.id);
@@ -150,7 +157,7 @@ export class Dashboard {
     this.ranges.set(view.settings.history_range?.toString() ?? 'all'); this.axis.set(view.settings.from_zero ? 'zero' : 'fit');
     this.follow.input.checked = view.history_viewport.follow; this.reset.disabled = !view.history_viewport.reset_enabled;
     this.zoom.input.value = String(view.settings.ui_zoom);
-    this.table.update(view, explicitReveal);
+    if (!this.overviewExpanded) this.table.update(view, explicitReveal);
     text(this.tableStatus, view.table.order_held ? 'Order held while inspecting' : view.table.selection_hidden ? 'Selection hidden by current filter or grouping; inspector retained' : '');
     text(this.barsHelp, `Row fill: relative to largest ${view.settings.grouping === 'process' || view.settings.grouping === 'tree' ? 'process' : 'group'} · Change: red ↑ · green ↓ · white unchanged`);
     const selected = view.selected; text(this.title, selected?.name ?? 'Select a process');
@@ -188,6 +195,21 @@ export class Dashboard {
     const scale = (this.view?.settings.ui_zoom ?? 100) / 100;
     this.element.classList.toggle('reflow', window.innerWidth < 760 * scale || window.innerHeight < 600 * scale);
   }
+  private setOverviewExpanded(expanded: boolean): void {
+    if (expanded === this.overviewExpanded) return;
+    if (expanded) this.returnPosition = { tableTop: this.table.element.scrollTop, tableLeft: this.table.element.scrollLeft, inspectorTop: this.inspector.scrollTop };
+    this.overviewExpanded = expanded; this.element.classList.toggle('overview-expanded', expanded);
+    this.processPanel.hidden = expanded; this.splitter.hidden = expanded; this.inspector.hidden = expanded;
+    text(this.overviewToggle, expanded ? 'Back to processes' : 'Expand overview');
+    this.overviewToggle.title = expanded ? 'Restore the process table and inspector (Escape)' : 'Make overall memory the main view';
+    this.overview.setExpanded(expanded);
+    if (!expanded && this.view) {
+      this.table.update(this.view);
+      this.table.element.scrollTop = this.returnPosition.tableTop; this.table.element.scrollLeft = this.returnPosition.tableLeft;
+      this.inspector.scrollTop = this.returnPosition.inspectorTop;
+    }
+    this.overviewToggle.focus({ preventScroll: true });
+  }
   private openDiagnostics(): void { this.renderDiagnostics(); this.diagnosticOpen = true; this.diagnostics.showModal(); }
   private closeDiagnostics(): void { this.diagnosticOpen = false; this.diagnostics.close(); }
   private renderDiagnostics(): void {
@@ -208,12 +230,14 @@ export class Dashboard {
   private installShortcuts(): void {
     document.addEventListener('keydown', e => {
       const target = e.target; const editing = target instanceof HTMLElement && target.matches('input,textarea,select,[contenteditable="true"]');
-      if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); this.filter.focus(); this.filter.select(); return; }
+      if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); this.setOverviewExpanded(false); this.filter.focus(); this.filter.select(); return; }
+      if (e.key === 'Escape' && this.overviewExpanded && !editing && !this.diagnosticOpen) { e.preventDefault(); this.setOverviewExpanded(false); return; }
       if (!this.view) return;
       if (e.ctrlKey && ['+', '=', '-', '0'].includes(e.key)) {
         e.preventDefault(); const zoom = e.key === '0' ? 100 : Math.max(75, Math.min(200, this.view.settings.ui_zoom + (e.key === '-' ? -25 : 25))); this.send({ type: 'set_ui_zoom', value: zoom }); return;
       }
       if (editing) return;
+      if (['+', '-', '1', '2', '3', 'F2', 'F3', 'F4', 'F5', 'F8'].includes(e.key)) this.setOverviewExpanded(false);
       if (e.key === '+' || e.key === '-') { e.preventDefault(); this.history.zoom(e.key === '+'); }
       if (['1', '2', '3'].includes(e.key)) { e.preventDefault(); this.send({ type: 'set_history_range', seconds: [300, 900, 1800][Number(e.key) - 1] }); }
       if (e.key === 'F2') { e.preventDefault(); const groups: Grouping[] = ['name', 'path', 'tree', 'process', 'family']; this.send({ type: 'set_grouping', value: groups[(groups.indexOf(this.view.settings.grouping) + 1) % groups.length] }); }

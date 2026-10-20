@@ -308,6 +308,61 @@ try {
   assert(flatProof.background.includes('linear-gradient') && flatProof.focus && flatProof.outline >= 1);
   assert.equal(flatProof.rowLine, 0); assert.equal(flatProof.obsoleteBars, 0); assert(flatProof.panels);
   check('Flat panels and row-wide fills preserve visible focus and exact numeric cells', flatProof);
+  const processState = await view();
+  const expandOverview = page.getByRole('button', { name: 'Expand overview', exact: true });
+  await expandOverview.focus(); await page.keyboard.press('Enter');
+  const backToProcesses = page.getByRole('button', { name: 'Back to processes', exact: true });
+  await backToProcesses.waitFor({ state: 'visible' });
+  assert(await backToProcesses.evaluate(button => document.activeElement === button), 'View switch keeps a visible keyboard focus target');
+  assert.equal(await page.locator('.process-panel').isVisible(), false);
+  assert.equal(await page.locator('.inspector-scroll').isVisible(), false);
+  const mainLayouts = [];
+  for (const [width, height, scale] of [[585, 774, 75], [585, 774, 100], [585, 774, 125], [1440, 900, 100]]) {
+    await page.setViewportSize({ width, height });
+    await page.getByRole('combobox', { name: /View scale/ }).selectOption(String(scale));
+    await until(async () => (await view()).settings.ui_zoom === scale && await page.evaluate(target => parseFloat(getComputedStyle(document.documentElement).fontSize) === 14 * target / 100, scale), 'main overview scale');
+    await until(async () => page.locator('.dashboard').evaluate(root => {
+      const workspace = root.querySelector('.workspace').getBoundingClientRect(), panel = root.querySelector('.overview-panel').getBoundingClientRect();
+      return root.classList.contains('overview-expanded') && panel.width >= workspace.width * .98 && panel.height >= workspace.height * .95 && panel.height <= workspace.height + 2;
+    }), 'main overview occupies the available workspace at each layout breakpoint');
+    const geometry = await page.locator('.dashboard').evaluate(root => {
+      const plot = root.querySelector('.overview-panel svg').getBoundingClientRect();
+      return { width: innerWidth, height: innerHeight, plotWidth: plot.width, plotHeight: plot.height, contained: document.documentElement.scrollWidth <= innerWidth + 1 && document.documentElement.scrollHeight <= innerHeight + 1 };
+    });
+    assert(geometry.contained, 'Main overview remains within the root viewport');
+    assert(geometry.plotWidth > width * .85 && geometry.plotHeight > 200, 'The main plot uses expanded width and height');
+    mainLayouts.push({ ...geometry, scale });
+  }
+  const overviewChoice = page.getByRole('combobox', { name: 'Overall memory view last', exact: true });
+  await overviewChoice.selectOption('300');
+  await until(async () => (await view()).settings.overview_range === 300, 'main overview range uses real controller');
+  if ((await view()).paused) {
+    await page.getByRole('button', { name: 'Resume display', exact: true }).click();
+    await until(async () => !(await view()).paused, 'resume in main overview');
+  }
+  const mainDisplayedAt = (await view()).displayed_at;
+  await until(async () => (await view()).displayed_at > mainDisplayedAt, 'main overview keeps receiving collected snapshots');
+  assert(await backToProcesses.isVisible(), 'Live updates preserve the main overview');
+  await page.getByRole('button', { name: 'Pause display', exact: true }).click();
+  await until(async () => (await view()).paused, 'pause in main overview');
+  await page.screenshot({ path: path.join(output, 'main-overview-wide.png') });
+  await page.setViewportSize({ width: 585, height: 774 });
+  await page.getByRole('combobox', { name: /View scale/ }).selectOption('75');
+  await until(async () => (await view()).settings.ui_zoom === 75, 'main overview reference scale');
+  await page.screenshot({ path: path.join(output, 'main-overview-compact.png') });
+  check('Overall memory can fill the main workspace across window and text sizes while range, live updates and pause work', mainLayouts);
+  await backToProcesses.focus(); await page.keyboard.press('Escape');
+  await expandOverview.waitFor({ state: 'visible' }); assert(await page.locator('.process-panel').isVisible());
+  const restoredState = await view();
+  for (const key of ['filter', 'grouping', 'sort']) assert.deepEqual(restoredState.settings[key], processState.settings[key], `Restore preserves ${key}`);
+  assert.equal(restoredState.table.selected_id, processState.table.selected_id, 'Restore preserves selected process');
+  await expandOverview.click(); await page.keyboard.press('Control+f');
+  assert(await page.locator('#process-filter').evaluate(input => document.activeElement === input), 'Ctrl+F reveals and focuses the process filter');
+  assert(await page.locator('.inspector-scroll').isVisible());
+  await expandOverview.click(); await backToProcesses.click(); await expandOverview.waitFor({ state: 'visible' });
+  await overviewChoice.selectOption(processState.settings.overview_range?.toString() ?? 'all');
+  await until(async () => (await view()).settings.overview_range === processState.settings.overview_range, 'restore overview range');
+  check('Main overview returns by Escape, button or filter shortcut without changing process state');
   await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');
   await until(async () => (await view()).settings.ui_zoom === 100, 'restore test scale');
   const preferences = await readFile(path.join(output, 'preferences.ini'), 'utf8');

@@ -122,3 +122,18 @@ no layout height or label gutter and does not change sampling/drag coordinates.
 Escape, outside pointer input and leaving the chart by keyboard dismiss it.
 Normal desktop charts retain inline labels. Flat surfaces retain input underlines,
 selection/focus accents, column resizing and forced-color control boundaries.
+
+## Main overview (MM-011)
+
+A local view switch promotes the existing overview chart into the whole workspace.
+The process panel, splitter and inspector become hidden, including their keyboard
+navigation targets. The same chart, range control and shared header/footer remain.
+Chart height follows the available overview panel rather than the sidebar cap;
+expanded layout overrides normal reflow flex containers at narrow breakpoints.
+
+Returning refreshes the keyed table from the latest controller view and restores
+the existing process context. Collector updates never reset the local view choice.
+Escape returns to the dashboard, after a compact chart's labels have had their
+own Escape; dialogs retain their modal Escape. Ctrl+F and existing process/history
+shortcuts first reveal the relevant controls. No new IPC action, persisted setting,
+Tauri permission or backend behavior is introduced.

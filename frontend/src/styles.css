@@ -144,4 +144,8 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .reflow .overview-panel { overflow: visible; }
 .reflow .inspector-scroll { min-height: 16rem; max-height: 42rem; }
 .reflow .header-summary { flex-basis: 100%; }
+.dashboard.overview-expanded { height: 100dvh; grid-template-rows: auto minmax(0, 1fr) auto; }
+.overview-expanded .workspace { display: grid; grid-template-columns: minmax(0, 1fr); }
+.overview-expanded .right-pane { display: grid; grid-template-rows: minmax(0, 1fr); }
+.overview-expanded .overview-panel { overflow: auto; }
 @media (forced-colors: active) { button, input, select, .segments span { border: 1px solid ButtonText; } .process-row.selected { border-color: Highlight; } .segments input:checked + span { background: Highlight; color: HighlightText; } }

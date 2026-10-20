@@ -25,6 +25,23 @@ The right pane should contain two vertically stacked panels:
 
 When the window becomes smaller, allow toolbar wrapping, table scrolling and inspector scrolling. Preserve readable text and exact numeric values. Reduce decorative bar space before clipping numbers.
 
+### Overall memory as the main view
+
+Provide **Expand overview** beside Overall memory usage. It promotes the existing
+chart to the whole workspace and uses the available plot width and height instead
+of the sidebar height cap. Hide the process panel, splitter and inspector from
+both visual layout and keyboard navigation. Keep the overview range, shared
+header/footer, collection and pause controls working.
+
+**Back to processes** restores the table and inspector with the existing process
+context and current data. Preserve the chosen main view through live updates and
+window/text resizing. This is a session-local frontend choice. Escape returns,
+after compact chart labels have handled their own first Escape; modal dialogs
+retain their Escape behavior. Ctrl+F first restores the process filter, and
+process/history shortcuts reveal the controls they address. Keep switch focus
+visible. Normal dashboard layout and compact hover/focus/tap labels remain
+available. No backend command or persisted setting is added.
+
 ### Theme tokens
 
 Define shared resources instead of assigning colours separately to individual controls.

@@ -48,7 +48,7 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .splitter { cursor: col-resize; position: relative; touch-action: none; }
 .splitter::after { content: ''; position: absolute; width: 1px; inset-block: 0; left: 50%; background: var(--divider); }
 .splitter:hover::after, .splitter:focus-visible::after { background: var(--orange); width: 2px; }
-.right-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) minmax(11rem, 1.2fr); gap: .7rem; }
+.right-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(11rem, 1fr); gap: .7rem; }
 .overview-panel { min-height: 0; min-width: 0; padding: .7rem; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; margin-bottom: .4rem; }
 .panel-heading .field { font-size: .9rem; }

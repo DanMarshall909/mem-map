@@ -34,7 +34,7 @@ test('physical chart labels its bands directly without repeated global summaries
 
 test('unavailable physical capacity remains unknown instead of a zero capacity or zero-percent meter', () => {
   const window = dom(); const dashboard = new Dashboard(() => {}, () => {}); document.body.append(dashboard.element);
-  const view = fixture(); view.overview.capacity = '0'; view.overview.samples = [];
+  const view = fixture(); view.overview.capacity = '0'; view.overview.samples = []; view.system_memory = { capacity: '0', used: null, available: null };
   view.collection = { status: 'unavailable', age_seconds: 0, error: 'System reading failed' }; dashboard.update(view);
   assert.match(dashboard.element.querySelector('.system-summary')!.textContent!, /used — \/ —/);
   assert.equal(dashboard.element.querySelector('progress')!.hasAttribute('value'), false);
@@ -108,7 +108,7 @@ test('treegrid keys select stable IDs and collapse or enter children', () => {
 test('repeated live frames retain inspector scroll, focused control and selected history choices', () => {
   const window = dom(); const actions: unknown[] = []; const dashboard = new Dashboard(a => actions.push(a), () => {}); document.body.append(dashboard.element);
   const view = fixture(); dashboard.update(view); dashboard.inspector.scrollTop = 233;
-  const metric = [...dashboard.element.querySelectorAll('select')].find(input => input.parentElement?.textContent?.startsWith('Metric:'))!;
+  const metric = dashboard.inspector.querySelector<HTMLInputElement>('input[value=private_commit]')!;
   metric.focus(); const inspector = dashboard.inspector; const ranges = dashboard.inspector.querySelector('fieldset')!;
   for (let i = 1; i <= 20; i++) { const frame = structuredClone(view); frame.revision = i + 1; frame.live_at += i * 2; frame.history_viewport.follow = false; frame.history_viewport.manual_end = 600; frame.history_viewport.reset_enabled = true; dashboard.update(frame); }
   assert.equal(dashboard.inspector, inspector); assert.equal(inspector.scrollTop, 233); assert.equal(document.activeElement, metric);
@@ -165,8 +165,7 @@ test('semantic controls dispatch the agreed domain actions and preserve in-progr
   const group = dashboard.element.querySelector('fieldset')!;
   assert.equal(group.querySelectorAll('input:checked').length, 1); assert.equal(group.querySelector<HTMLInputElement>('input:checked')!.value, 'name');
   group.querySelector<HTMLInputElement>('input[value=family]')!.click();
-  dashboard.element.querySelector<HTMLSelectElement>('select[aria-label="Metric"]')!.value = 'private_commit';
-  dashboard.element.querySelector('select[aria-label="Metric"]')!.dispatchEvent(new window.Event('change'));
+  dashboard.inspector.querySelector<HTMLInputElement>('input[value=private_commit]')!.click();
   dashboard.inspector.querySelector<HTMLInputElement>('input[value="900"]')!.click();
   dashboard.inspector.querySelector<HTMLInputElement>('input[value=fit]')!.click();
   [...dashboard.element.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'Pause display')!.click();

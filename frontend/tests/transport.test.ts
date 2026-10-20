@@ -65,3 +65,19 @@ test('overlapping polls are bounded and collection IPC errors allow a later reco
   await client.refresh(); assert.match(errors[0], /Collector IPC disconnected/);
   await client.refresh(); assert.deepEqual(rendered, [1, 2]); assert.equal(await client.native('snapshot'), 'Copied snapshot as CSV');
 });
+
+
+test('a poll finishing during an action cannot reset the pending control selection', async () => {
+  type Frame = { revision: number; metric: string };
+  let pollDone!: (view: Frame) => void, actionDone!: (view: Frame) => void;
+  const seen: string[] = [];
+  const client = new ViewClient({ getView: () => new Promise<Frame>(r => { pollDone = r; }),
+    dispatch: (_action: string) => new Promise<Frame>(r => { actionDone = r; }), copyPaths: async () => '', copySnapshot: async () => '' },
+    view => seen.push(view.metric), error => assert.fail(error));
+  const poll = client.refresh(), action = client.send('commit');
+  await new Promise(resolve => setImmediate(resolve));
+  pollDone({ revision: 1, metric: 'working set' }); await poll;
+  assert.deepEqual(seen, [], 'Pending actions suppress stale poll renders');
+  actionDone({ revision: 2, metric: 'commit' }); await action;
+  assert.deepEqual(seen, ['commit']);
+});

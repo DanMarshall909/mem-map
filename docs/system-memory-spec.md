@@ -435,6 +435,21 @@ These values must agree with the header’s displayed snapshot.
 
 Use a single-selection toggle group at the upper right: **5m · 15m · 30m · All**, with a retained accessible group name and native radio keyboard operation. Preserve the selected range through live updates and expansion.
 
+### Metric and axis icon toggles
+
+Offer distinct, named icon-radio toggles for Private working set/Private commit
+and From zero/Fit values alongside the overview range controls, matching selected
+history controls. Each chart preserves its own choices and keyboard semantics.
+
+The default working-set chart follows the physical accounting below. Commit mode
+is explicitly **Measured private commit**, summing retained measured process commit
+counters. It includes Other processes and the same named groups/colors, with no
+Other used RAM residual, physical available value or invented system commit limit.
+Commit may exceed physical RAM; legend shares divide by measured commit total.
+Excluded unknown allocations and incomplete attribution retain coverage reasons,
+neutral measured totals or gaps. Comparisons use matching retained metric baselines.
+The shared header always remains physical RAM from the displayed/frozen snapshot.
+
 ### Chart type and axes
 
 Implement a **true cumulative stacked area chart in absolute GiB**.
@@ -619,9 +634,9 @@ Replace the ambiguous RAM and plus/minus control row with explicit controls.
 
 | Element | Default | Required behaviour |
 |---|---|---|
-| **Metric** dropdown | Private working set | Select the plotted counter; include Private commit when available |
+| **Metric** icon toggles | Private working set | Choose Private working set or Private commit independently on each chart; keep accessible names and tooltips |
 | **View last** segmented control | 30m | Use the same compact 5m/15m/30m/All toggles as overall memory; retain the accessible group name |
-| **Y-axis** segmented control | From zero | Choose From zero or Fit values |
+| **Y-axis** icon toggles | From zero | Choose From zero or Fit values independently on each chart, with names and tooltips |
 | **Reset view** button | Enabled after navigation | Remove manual pan/zoom, preserve selected range and metric, and re-enable Follow latest |
 | **Follow latest** checkbox | Checked | Keep the chart attached to the newest displayed sample |
 
@@ -633,7 +648,7 @@ Use orange fill for selected segmented options.
 
 **Fit values** uses the visible value range with modest padding. Keep both axis bounds visible so the narrower scale is obvious.
 
-The overall-memory chart should retain its zero-to-capacity scale independently.
+Both charts have independent metric and axis settings. Default physical working-set overview uses zero-to-capacity; commit uses zero-to-visible measured commit maximum. Fit values uses the visible total range plus padding, exposes both bounds and clips stack/cursor geometry. Never portray a fitted bound as physical capacity. Persist both metrics and axes without changing table/summary counters.
 
 ### History chart
 

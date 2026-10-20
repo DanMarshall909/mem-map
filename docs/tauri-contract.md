@@ -28,14 +28,14 @@ Unknown readings remain null with reason/coverage, never converted to zero.
 ## View
 
 `View` has `revision`, `displayed_at`, `displayed_unix_ms` (decimal string),
-`live_at`, `paused`, `collection` { `status`, `age_seconds`, `error` },
+`live_at`, `paused`, `system_memory` { `capacity`, `used`, `available` } (always physical, exact decimal strings/null), `collection` { `status`, `age_seconds`, `error` },
 `settings`, `table`, `selected`, `overview`, `history`, `history_viewport`,
 `diagnostics`, `notice` and `reveal_row_id` (nullable string).
 
 `settings`: `grouping` (name/path/tree/process/family), `filter`, `show_exited`,
 `compact`, `change_seconds`, `sort` { `column`, `descending` },
 `overview_range`, `history_range` (nullable seconds), `metric`
-(private_working_set/private_commit), `from_zero`, `ui_zoom`, `column_widths`
+(private_working_set/private_commit), `from_zero`, `overview_metric`, `overview_from_zero`, `ui_zoom`, `column_widths`
 (six numbers), `splitter_permille`.
 
 `table`: `rows`, `selected_id`, `selection_hidden`, `order_held`, `total_roots`,
@@ -66,7 +66,7 @@ Actions are tagged with `type`, with the listed additional fields:
   `set_compact {value}`, `set_change_seconds {value}`, `sort_by {column}`.
 - `select_row {id}`, `toggle_expanded {id}`, `show_selected_processes`,
   `select_process_parent` (F8), `set_table_interaction_held {value}`, `set_paused {value}`.
-- `set_metric {value}`, `set_overview_range {seconds}`, `set_history_range {seconds}`,
+- `set_metric {value}`, `set_overview_metric {value}`, `set_overview_from_zero {value}`, `set_overview_range {seconds}`, `set_history_range {seconds}`,
   `set_from_zero {value}`, `set_follow {value}`,
   `set_history_viewport {end, width}`, `reset_history_view`.
 - `set_column_widths {value}`, `set_splitter {value}`, `set_ui_zoom {value}`.
@@ -210,3 +210,27 @@ diagnostics remain. Snapshot copy shares the overview back action's orange accen
 Details keeps its Close action in a fixed header above a scrolling content body.
 Both Close and Escape dismiss the modal and restore focus without leaving the
 expanded overview. All automated verification remains headless.
+
+
+## Independent chart metrics and axes (MM-018)
+
+Both chart headers use named icon-radio groups for Private working set/Private
+commit and From zero/Fit values. Overview settings and selected-history settings
+are independent. Both metric choices and both axis choices persist as bounded
+presentation preferences; legacy preference files retain working-set/zero defaults.
+No new native command or permission is introduced.
+
+The physical overview retains system used RAM and its Other used RAM residual.
+Commit overview is explicitly Measured private commit, summed from retained
+executable-group commit counters. It contains Other processes plus the same named
+bands/colors; it is neither system committed memory nor resident RAM. Its capacity
+is0 and available is null; legend shares divide by measured commit total. Unknown
+allocations are excluded with coverage reasons. Incomplete scans or unavailable
+named attribution retain a neutral measured total/gap; missing readings never
+become fabricated release. Header system_memory always remains physical and frozen
+with the displayed snapshot. Metric baselines come from matching retained data.
+
+Overview zero scale is zero-to-physical-capacity for working set and zero-to-data
+maximum for commit. Fit uses visible total values plus padding, labels both bounds
+and clips stacked areas/cursor to the plot; capacity is not relabeled as a fitted
+bound. Commit may exceed RAM. Selected-history scaling keeps its existing semantics.

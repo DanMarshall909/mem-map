@@ -26,7 +26,12 @@ export class ViewClient<V extends { revision: number }, A> {
   async refresh(): Promise<void> {
     if (this.polling || this.pending) return;
     this.polling = true;
-    try { this.apply(await this.bridge.getView()); }
+    try {
+      const view = await this.bridge.getView();
+      // A request already in flight can finish after the user changes a control.
+      // Do not repaint the old state while that queued action is pending.
+      if (!this.pending) this.apply(view);
+    }
     catch (e) { this.error(String(e)); }
     finally { this.polling = false; }
   }

@@ -6,6 +6,10 @@ export function button(label: string, action: () => void, className = ''): HTMLB
   const node = el('button', className, label); node.type = 'button'; node.addEventListener('click', action); return node;
 }
 const icons = {
+  ram: 'M3 6h18v12H3ZM7 9v6m5-6v6m5-6v6M7 18v3m5-3v3m5-3v3',
+  commit: 'M6 3h9l4 4v14H6ZM14 3v5h5M9 12h7m-7 4h7',
+  zero: 'M4 3v17h17M8 15l4-6 4 3 5-7M1 20h6',
+  fit: 'M3 8h18M3 16h18M12 2v6m-3-3 3 3 3-3M12 22v-6m-3 3 3-3 3 3',
   pause: 'M8 5v14M16 5v14', play: 'm8 5 11 7-11 7Z',
   tag: 'm3 3 9 0 9 9-9 9-9-9ZM7 7h.01',
   folder: 'M3 7V4h7l3 3h8v13H3Z',

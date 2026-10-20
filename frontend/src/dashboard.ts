@@ -4,6 +4,7 @@ import { bytes, changePercent, dateTime, duration, elapsed, partial, reading, re
 import { ProcessTreeGrid } from './treegrid.ts';
 import { MemoryChart } from './charts.ts';
 
+const metricChoices: [Metric, string][] = [['private_working_set', 'Private working set'], ['private_commit', 'Private commit']];
 const rangeChoices: [string, string][] = [['300', '5m'], ['900', '15m'], ['1800', '30m'], ['all', 'All']];
 export class Dashboard {
   readonly element = el('main', 'dashboard');
@@ -12,6 +13,7 @@ export class Dashboard {
   private view: View | null = null;
   private send: (action: Action) => void;
   private overview: MemoryChart;
+  private overviewTitle = el('h2', '', 'Overall memory usage');
   private overviewExpanded = false;
   private overviewToggle: HTMLButtonElement;
   private processPanel = el('section', 'process-panel');
@@ -31,7 +33,9 @@ export class Dashboard {
   private compact: ReturnType<typeof checkbox>;
   private changeChoice: ReturnType<typeof select>;
   private overviewRange: ReturnType<typeof radios<string>>;
-  private metric: ReturnType<typeof select>;
+  private metric: ReturnType<typeof radios<Metric>>;
+  private overviewMetric: ReturnType<typeof radios<Metric>>;
+  private overviewAxis: ReturnType<typeof radios<string>>;
   private ranges: ReturnType<typeof radios<string>>;
   private axis: ReturnType<typeof radios<string>>;
   private follow: ReturnType<typeof checkbox>;
@@ -92,11 +96,14 @@ export class Dashboard {
     toolbar.append(this.group.group, filterLabel, options); left.append(toolbar, this.table.element, this.tableStatus, this.barsHelp);
     const right = el('div', 'right-pane'); const overviewPanel = el('section', 'panel overview-panel');
     overviewPanel.id = 'overall-memory-panel';
-    const overviewHeading = el('div', 'panel-heading'); overviewHeading.append(el('h2', '', 'Overall memory usage'));
+    const overviewHeading = el('div', 'panel-heading'); overviewHeading.append(this.overviewTitle);
+    this.overviewMetric = radios('Overall memory metric', metricChoices, value => send({ type: 'set_overview_metric', value }), { private_working_set: 'ram', private_commit: 'commit' });
+    this.overviewAxis = radios('Overall memory Y-axis', [['zero', 'From zero'], ['fit', 'Fit values']], value => send({ type: 'set_overview_from_zero', value: value === 'zero' }), { zero: 'zero', fit: 'fit' });
     this.overviewRange = radios('Overall memory view last', rangeChoices, value => send({ type: 'set_overview_range', seconds: value === 'all' ? null : Number(value) }));
     this.overviewToggle = iconButton('Expand overview', 'expand', () => this.setOverviewExpanded(!this.overviewExpanded), 'accent');
     this.overviewToggle.title = 'Make overall memory the main view'; this.overviewToggle.setAttribute('aria-controls', overviewPanel.id);
-    this.overviewRange.group.querySelector('legend')!.classList.add('sr-only'); overviewHeading.append(this.overviewRange.group, this.overviewToggle); overviewPanel.append(overviewHeading, this.overview.element);
+    this.overviewRange.group.querySelector('legend')!.classList.add('sr-only');
+    const overviewControls = el('div', 'chart-controls'); overviewControls.append(this.overviewMetric.group, this.overviewAxis.group, this.overviewRange.group, this.overviewToggle); overviewHeading.append(overviewControls); overviewPanel.append(overviewHeading, this.overview.element);
     this.inspector.setAttribute('aria-label', 'Selected process inspector'); this.inspector.tabIndex = -1;
     const inspectorHeading = el('div', 'inspector-heading'); this.title.id = 'selected-title';
     this.inspector.setAttribute('aria-labelledby', this.title.id);
@@ -108,13 +115,14 @@ export class Dashboard {
     this.paths.append(this.pathSummary, this.pathList);
     const summaryValues = el('dl', 'summary-values');
     ['Private working set', 'Private commit', '', 'Peak (last 30m)'].forEach((label, index) => { const dt = index === 2 ? this.changeLabel : el('dt', '', label); const dd = el('dd', '', '—'); dd.tabIndex = 0; this.values.push(dd); summaryValues.append(dt, dd); });
-    this.metric = select('Metric:', [['private_working_set', 'Private working set'], ['private_commit', 'Private commit']], value => send({ type: 'set_metric', value: value as Metric }));
+    this.metric = radios('Selected history metric', metricChoices, value => send({ type: 'set_metric', value }), { private_working_set: 'ram', private_commit: 'commit' });
     this.ranges = radios('View last', rangeChoices, value => send({ type: 'set_history_range', seconds: value === 'all' ? null : Number(value) }));
     this.ranges.group.classList.add('history-range'); this.ranges.group.querySelector('legend')!.classList.add('sr-only');
-    this.axis = radios('Y-axis', [['zero', 'From zero'], ['fit', 'Fit values']], value => send({ type: 'set_from_zero', value: value === 'zero' }));
+    this.axis = radios('Selected history Y-axis', [['zero', 'From zero'], ['fit', 'Fit values']], value => send({ type: 'set_from_zero', value: value === 'zero' }), { zero: 'zero', fit: 'fit' });
+    for (const controls of [this.metric, this.axis, this.overviewMetric, this.overviewAxis]) controls.group.querySelector('legend')!.classList.add('sr-only');
     this.reset = iconButton('Reset view', 'reset', () => send({ type: 'reset_history_view' }));
     this.follow = checkbox('Follow latest', value => send({ type: 'set_follow', value })); const navigation = el('div', 'history-navigation'); navigation.append(this.reset, this.follow.label);
-    const historyControls = el('div', 'history-controls'); historyControls.append(this.metric.label, this.ranges.group, this.axis.group, navigation);
+    const historyControls = el('div', 'history-controls'); historyControls.append(this.metric.group, this.ranges.group, this.axis.group, navigation);
     this.inspector.append(inspectorHeading, this.hiddenSelection, pathRow, this.paths, summaryValues, this.coverage, historyControls, this.history.element);
     right.append(overviewPanel, this.inspector); this.splitter.tabIndex = 0; this.splitter.setAttribute('role', 'separator'); this.splitter.setAttribute('aria-label', 'Resize process and memory panes'); this.splitter.setAttribute('aria-orientation', 'vertical');
     this.splitter.setAttribute('aria-valuemin', '40'); this.splitter.setAttribute('aria-valuemax', '80');
@@ -141,7 +149,7 @@ export class Dashboard {
     this.updateLayout();
     this.element.style.setProperty('--split', `${view.settings.splitter_permille / 10}%`);
     this.splitter.setAttribute('aria-valuenow', String(view.settings.splitter_permille / 10));
-    const latest = view.overview.samples.at(-1); const used = latest?.used ?? null, capacity = latest?.capacity ?? view.overview.capacity;
+    const latest = view.system_memory; const used = latest.used, capacity = latest.capacity;
     const knownCapacity = BigInt(capacity) > 0n ? capacity : null;
     const percent = used === null || knownCapacity === null ? null : Number(BigInt(used) * 100n / BigInt(knownCapacity));
     const system = `System RAM used ${bytes(used)} / ${bytes(knownCapacity)}${percent === null ? '' : ` (${percent}%)`}`;
@@ -155,7 +163,7 @@ export class Dashboard {
     this.group.set(view.settings.grouping); this.exited.input.checked = view.settings.show_exited; this.compact.input.checked = view.settings.compact;
     if (!this.editingFilter && document.activeElement !== this.filter) this.filter.value = view.settings.filter;
     this.clear.hidden = !this.filter.value; this.changeChoice.input.value = String(view.settings.change_seconds);
-    this.overviewRange.set(view.settings.overview_range?.toString() ?? 'all'); this.metric.input.value = view.settings.metric;
+    this.overviewRange.set(view.settings.overview_range?.toString() ?? 'all'); this.metric.set(view.settings.metric); this.overviewMetric.set(view.settings.overview_metric); this.overviewAxis.set(view.settings.overview_from_zero ? 'zero' : 'fit');
     this.ranges.set(view.settings.history_range?.toString() ?? 'all'); this.axis.set(view.settings.from_zero ? 'zero' : 'fit');
     this.follow.input.checked = view.history_viewport.follow; this.reset.disabled = !view.history_viewport.reset_enabled;
     this.zoom.input.value = String(view.settings.ui_zoom);
@@ -185,6 +193,7 @@ export class Dashboard {
     });
     text(this.changeLabel, `Change over ${view.settings.change_seconds / 60}m`);
     text(this.coverage, selected ? `${selected.private.measured} of ${selected.private.total} processes measured${partial(selected.private) ? ' · Partial' : ''}${selected.private.reason ? ` · ${selected.private.reason}` : ''}${selected.change.reason ? ` · Change: ${selected.change.reason}` : ''} · ${duration(selected.recorded)} recorded; peak uses the last 30 minutes` : '');
+    text(this.overviewTitle, view.settings.overview_metric === 'private_commit' ? 'Measured private commit' : 'Overall memory usage');
     this.overview.update(view); this.history.update(view);
     if (view.notice !== this.lastNotice && view.notice) this.showNotice(view.notice);
     if (this.diagnosticOpen) this.renderDiagnostics();

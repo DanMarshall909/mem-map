@@ -51,7 +51,7 @@ export class MemoryChart {
   private hover: number | null = null;
   private band = 0;
   private drag: { x: number; end: number; width: number } | null = null;
-  private plot = { width: 1, left: 0, right: 1, top: 0, bottom: 1, maximum: 1 };
+  private plot = { width: 1, left: 0, right: 1, top: 0, bottom: 1, minimum: 0, maximum: 1 };
   constructor(kind: 'overview' | 'history', send: (action: Action) => void) {
     this.kind = kind; this.send = send;
     this.element.setAttribute('role', 'group');
@@ -107,7 +107,13 @@ export class MemoryChart {
     }
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.draw()).observe(this.element);
   }
-  update(view: View): void { this.view = view; this.draw(); }
+  private color(index: number): string { return colors[(index + (this.view?.settings.overview_metric === 'private_commit' ? 1 : 0)) % colors.length]; }
+  update(view: View): void {
+    const selected = this.view?.overview.layers[this.band];
+    this.view = view;
+    if (selected) this.band = Math.max(0, view.overview.layers.findIndex(layer => selected.id ? layer.id === selected.id : layer.name === selected.name));
+    this.draw();
+  }
   setExpanded(value: boolean): void { this.expanded = value; this.draw(); }
   private dismissLabels(): void { this.pinned = false; this.dismissed = true; this.updateLabels(); }
   private updateLabels(): void {
@@ -155,17 +161,18 @@ export class MemoryChart {
     this.cursor.replaceChildren();
     if (this.kind === 'overview') {
       const overview = this.view.overview;
+      const commit = this.view.settings.overview_metric === 'private_commit';
       const sample = nearest(overview.samples, this.hover ?? overview.end);
       this.updateOverviewDetails(sample);
       if (!sample) { text(this.data, 'No system memory samples recorded'); return; }
       const time = sample.captured_unix_ms ? dateTime(sample.captured_unix_ms) : `${age(overview.end - sample.at)} ago`;
       const layer = overview.layers[this.band];
-      const bandShare = this.expanded ? share(sample.layers?.[this.band] ?? null, sample.capacity) : null;
-      text(this.data, `${time} · ${age(overview.end - sample.at)} ago · ${layer?.program_name?.trim() || layer?.name || 'System memory'} ${bytes(sample.layers?.[this.band] ?? null)} (${sample.layers?.[this.band] ?? 'Unavailable'} raw bytes)${bandShare === null ? '' : ` (${bandShare} of physical RAM)`} · Capacity ${bytes(BigInt(sample.capacity) > 0n ? sample.capacity : null)} · Used ${bytes(sample.used)} · Available ${bytes(sample.available)} · ${sample.measured} of ${sample.observed} processes measured${sample.reason ? ` · ${sample.reason}` : ''}`);
+      const bandShare = this.expanded ? share(sample.layers?.[this.band] ?? null, commit ? sample.used ?? '0' : sample.capacity) : null;
+      text(this.data, `${time} · ${age(overview.end - sample.at)} ago · ${layer?.program_name?.trim() || layer?.name || 'System memory'} ${bytes(sample.layers?.[this.band] ?? null)} (${sample.layers?.[this.band] ?? 'Unavailable'} raw bytes)${bandShare === null ? '' : ` (${bandShare} of ${commit ? 'measured private commit' : 'physical RAM'})`} · ${commit ? `Measured private commit ${bytes(sample.used)}` : `Capacity ${bytes(BigInt(sample.capacity) > 0n ? sample.capacity : null)} · Used ${bytes(sample.used)} · Available ${bytes(sample.available)}`} · ${sample.measured} of ${sample.observed} processes measured${sample.reason ? ` · ${sample.reason}` : ''}`);
       if (this.expanded && this.hover !== null) {
         const px = overview.end === overview.start ? this.plot.right : this.plot.left + (sample.at - overview.start) / (overview.end - overview.start) * (this.plot.right - this.plot.left);
         this.cursor.append(svg('line', { x1: px, x2: px, y1: this.plot.top, y2: this.plot.bottom, stroke: '#eceff1', 'stroke-dasharray': '3 3' }));
-        if (sample.used !== null) this.cursor.append(svg('circle', { cx: px, cy: this.plot.bottom - Number(sample.used) / this.plot.maximum * (this.plot.bottom - this.plot.top), r: 4 * this.view.settings.ui_zoom / 100, fill: '#eceff1', stroke: '#202327' }));
+        if (sample.used !== null) this.cursor.append(svg('circle', { cx: px, cy: this.plot.bottom - (Number(sample.used) - this.plot.minimum) / (this.plot.maximum - this.plot.minimum) * (this.plot.bottom - this.plot.top), r: 4 * this.view.settings.ui_zoom / 100, fill: '#eceff1', stroke: '#202327' }));
       }
     } else {
       const history = this.view.history;
@@ -179,7 +186,8 @@ export class MemoryChart {
   private updateOverviewDetails(sample: OverviewSample | null): void {
     const overview = this.view!.overview, scale = this.view!.settings.ui_zoom / 100;
     const { left, right, top } = this.plot;
-    const capacity = sample?.capacity ?? overview.capacity;
+    const commit = this.view!.settings.overview_metric === 'private_commit';
+    const capacity = commit ? sample?.used ?? '0' : sample?.capacity ?? overview.capacity;
     const labelWidth = Math.min(420 * scale, right - left - 20 * scale);
     const interval = this.view!.settings.change_seconds;
     // The Rust projection supplies the retained baseline even when it falls
@@ -198,9 +206,9 @@ export class MemoryChart {
       const fullName = layer.program_name?.trim() || layer.name;
       const letters = [...fullName], name = letters.length > 20 ? letters.slice(0, 19).join('') + '\u2026' : fullName;
       entry.setAttribute('data-label-y', String(y));
-      entry.replaceChildren(svg('title', {}, `${fullName}; ${layer.name}; ${amount ?? 'Unavailable'} raw bytes; share of physical RAM at ${sample ? dateTime(sample.captured_unix_ms) : 'unavailable time'}; Change over ${age(interval)}: ${change.label}; ${change.help}${sample?.reason ? `; ${sample.reason}` : ''}`));
+      entry.replaceChildren(svg('title', {}, `${fullName}; ${layer.name}; ${amount ?? 'Unavailable'} raw bytes; share of ${commit ? 'measured private commit' : 'physical RAM'} at ${sample ? dateTime(sample.captured_unix_ms) : 'unavailable time'}; Change over ${age(interval)}: ${change.label}; ${change.help}${sample?.reason ? `; ${sample.reason}` : ''}`));
       entry.append(svg('rect', { x, y, width: labelWidth, height: 22 * scale, rx: 3 * scale, fill: '#202327', 'fill-opacity': '.88' }));
-      entry.append(svg('rect', { x, y, width: 3 * scale, height: 22 * scale, fill: colors[index % colors.length] }));
+      entry.append(svg('rect', { x, y, width: 3 * scale, height: 22 * scale, fill: this.color(index) }));
       const fields = [
         { kind: 'name', value: name, start: 0, end: .40, color: '#eceff1' },
         { kind: 'value', value: bytes(amount), start: .40, end: .63, color: '#eceff1' },
@@ -239,18 +247,36 @@ export class MemoryChart {
         : Math.max((this.compact && !this.expanded ? 168 : 112) * scale, (panel?.clientHeight || 260 * scale) - overhead);
     }
     const left = (this.compact ? 12 : 52) * scale, right = width - (this.compact ? 12 : 18) * scale, top = 25 * scale, bottom = height - 34 * scale;
-    this.plot = { width, left, right, top, bottom, maximum: Number(view.overview.capacity) || 1 };
+    this.plot = { width, left, right, top, bottom, minimum: 0, maximum: Number(view.overview.capacity) || 1 };
     this.drawing.setAttribute('viewBox', `0 0 ${width} ${height}`); this.drawing.style.height = `${height}px`;
     this.drawing.replaceChildren();
     const source = this.kind === 'overview' ? view.overview : view.history;
     if (!source) { text(this.description, 'No selected history'); this.updateReadout(); return; }
     const x = (at: number) => source.end === source.start ? right : left + (at - source.start) / (source.end - source.start) * (right - left);
-    let min = 0, max = Number(view.overview.capacity) || 1;
+    const commit = view.settings.overview_metric === 'private_commit';
+    let min = 0, max = this.kind === 'overview' && commit ? Math.max(1073741824, ...view.overview.samples.map(sample => Number(sample.used ?? 0))) * 1.1 : Number(view.overview.capacity) || 1;
     if (this.kind === 'history') {
       const values = view.history!.points.filter(p => p.reading.measured === p.reading.total && p.reading.enumeration_complete).map(p => plotValue(p.reading.value)).filter((v): v is number => v !== null);
       max = Math.max(1, ...values) * 1.1;
       if (!view.settings.from_zero && values.length) { min = Math.max(0, Math.min(...values)); const padding = Math.max(1048576, (max - min) * 0.1); min = Math.max(0, min - padding); max += padding; }
     }
+    if (this.kind === 'overview' && !view.settings.overview_from_zero) {
+      const values = view.overview.samples.filter(p => p.used !== null).map(p => Number(p.used));
+      if (values.length) {
+        min = Math.min(...values); max = Math.max(1, ...values);
+        const padding = Math.max(1048576, (max - min) * 0.1);
+        min = Math.max(0, min - padding); max += padding;
+        if (!commit && Number(view.overview.capacity) > 0) max = Math.min(max, Number(view.overview.capacity));
+      }
+    }
+    this.plot.minimum = min;
+    this.plot.maximum = max;
+    const clipId = `${this.kind}-plot-clip`;
+    const clip = svg('clipPath', { id: clipId, class: 'chart-plot-clip' });
+    clip.append(svg('rect', { x: left, y: top, width: right - left, height: bottom - top }));
+    this.drawing.append(clip);
+    const areas = svg('g', { class: 'chart-areas', 'clip-path': `url(#${clipId})` });
+    this.drawing.append(areas); this.cursor.setAttribute('clip-path', `url(#${clipId})`);
     const y = (value: number) => bottom - (value - min) / Math.max(1, max - min) * (bottom - top);
     const annotations = svg('g', { class: 'chart-annotations' });
     const addText = (px: number, py: number, value: string, anchor = 'start', color = '#b8c0c6') => annotations.append(svg('text', { x: px, y: py, 'font-size': 12 * scale, 'text-anchor': anchor, fill: color }, value));
@@ -259,10 +285,11 @@ export class MemoryChart {
     addText(left, 14 * scale, this.kind === 'overview' ? 'GiB' : 'MiB');
     const detailed = this.expanded && this.kind === 'overview' && !this.compact;
     const memoryDivisions = detailed ? Math.max(3, Math.min(8, Math.floor((bottom - top) / (60 * scale)))) : 3;
-    if (this.kind === 'history' || capacity !== null) for (let i = 0; i <= memoryDivisions; i++) {
+    const digits = Math.max(1, Math.min(4, Math.ceil(-Math.log10((max - min) / unit / memoryDivisions))));
+    if (this.kind === 'history' || commit || capacity !== null) for (let i = 0; i <= memoryDivisions; i++) {
       const value = min + (max - min) * i / memoryDivisions, py = y(value);
-      this.drawing.append(svg('line', { x1: left, y1: py, x2: right, y2: py, stroke: '#42494f', 'stroke-dasharray': i === memoryDivisions && this.kind === 'overview' ? '5 4' : '0' }));
-      addText(left + (this.compact ? 4 : -6) * scale, py + 4 * scale, (value / unit).toFixed(1), this.compact ? 'start' : 'end');
+      this.drawing.append(svg('line', { x1: left, y1: py, x2: right, y2: py, stroke: '#42494f', 'stroke-dasharray': i === memoryDivisions && this.kind === 'overview' && !commit && max === Number(view.overview.capacity) ? '5 4' : '0' }));
+      addText(left + (this.compact ? 4 : -6) * scale, py + 4 * scale, (value / unit).toFixed(digits), this.compact ? 'start' : 'end');
     }
     this.drawing.append(svg('line', { x1: left, y1: top, x2: left, y2: bottom, stroke: '#b8c0c6' }));
     const timeDivisions = source.end === source.start ? 0 : detailed ? Math.min(Math.max(0, Math.floor(source.end - source.start)), Math.max(1, Math.min(8, Math.floor((right - left) / (90 * scale))))) : 1;
@@ -275,21 +302,21 @@ export class MemoryChart {
       const overview = view.overview;
       // Unknown attribution retains the valid system total as a neutral area; system failures leave a gap.
       const neutral = segments(overview.samples, p => p.used === null ? null : { x: x(p.at), low: y(0), high: y(Number(p.used)) });
-      this.drawing.append(svg('path', { d: pathSegments(neutral), fill: '#7b858b', opacity: '0.5' }));
+      areas.append(svg('path', { d: pathSegments(neutral), fill: '#7b858b', opacity: '0.5' }));
       overview.layers.forEach((_layer, index) => {
         const bands = segments(overview.samples, p => {
           if (!p.layers || p.used === null) return null;
           const low = p.layers.slice(0, index).reduce((sum, value) => sum + Number(value), 0);
           return { x: x(p.at), low: y(low), high: y(low + Number(p.layers[index] ?? 0)) };
         });
-        const path = svg('path', { d: pathSegments(bands), fill: colors[index % colors.length], stroke: '#202327', 'stroke-width': 0.6, opacity: this.band === index ? '1' : '0.88' });
-        path.addEventListener('pointerenter', () => { this.band = index; this.updateReadout(); }); this.drawing.append(path);
+        const path = svg('path', { d: pathSegments(bands), fill: this.color(index), stroke: '#202327', 'stroke-width': 0.6, opacity: this.band === index ? '1' : '0.88' });
+        path.addEventListener('pointerenter', () => { this.band = index; this.updateReadout(); }); areas.append(path);
       });
     } else {
       const history = view.history!;
       const complete = segments(history.points, p => p.reading.value === null || p.reading.measured !== p.reading.total || !p.reading.enumeration_complete ? null : { x: x(p.at), low: bottom, high: y(Number(p.reading.value)) });
-      this.drawing.append(svg('path', { d: pathSegments(complete), fill: '#6cbc8b', 'fill-opacity': '0.22', stroke: '#6cbc8b', 'stroke-width': 2 }));
-      const point = history.points.at(-1); if (point && point.reading.value !== null && point.reading.measured === point.reading.total && point.reading.enumeration_complete) { const py = y(Number(point.reading.value)); this.drawing.append(svg('circle', { cx: x(point.at), cy: py, r: 3 * scale, fill: '#6cbc8b' })); addText(right - 7 * scale, Math.max(top + 16 * scale, py - 7 * scale), bytes(point.reading.value), 'end', '#6cbc8b'); }
+      areas.append(svg('path', { d: pathSegments(complete), fill: '#6cbc8b', 'fill-opacity': '0.22', stroke: '#6cbc8b', 'stroke-width': 2 }));
+      const point = history.points.at(-1); if (point && point.reading.value !== null && point.reading.measured === point.reading.total && point.reading.enumeration_complete) { const py = y(Number(point.reading.value)); areas.append(svg('circle', { cx: x(point.at), cy: py, r: 3 * scale, fill: '#6cbc8b' })); addText(right - 7 * scale, Math.max(top + 16 * scale, py - 7 * scale), bytes(point.reading.value), 'end', '#6cbc8b'); }
       text(this.description, 'Drag to pan · Scroll to zoom');
     }
     this.drawing.append(annotations, this.bandLabels, this.cursor); this.updateReadout();

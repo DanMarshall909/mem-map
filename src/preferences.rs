@@ -13,6 +13,9 @@ pub struct Preferences {
     pub overview_range: Option<u32>,
     pub history_range: Option<u32>,
     pub from_zero: bool,
+    pub metric: String,
+    pub overview_metric: String,
+    pub overview_from_zero: bool,
     pub ui_zoom: u32,
 }
 
@@ -26,6 +29,9 @@ impl Default for Preferences {
             overview_range: Some(1800),
             history_range: Some(1800),
             from_zero: true,
+            metric: "private_working_set".into(),
+            overview_metric: "private_working_set".into(),
+            overview_from_zero: true,
             ui_zoom: 100,
         }
     }
@@ -56,9 +62,23 @@ impl Preferences {
                 "grouping" if ["name", "path", "tree", "process", "family"].contains(&value) => {
                     result.grouping = value.into()
                 }
+                "metric" | "overview_metric"
+                    if ["private_working_set", "private_commit"].contains(&value) =>
+                {
+                    if key.trim() == "metric" {
+                        result.metric = value.into();
+                    } else {
+                        result.overview_metric = value.into();
+                    }
+                }
                 "compact" => {
                     if let Ok(v) = value.parse() {
                         result.compact = v;
+                    }
+                }
+                "overview_from_zero" => {
+                    if let Ok(v) = value.parse() {
+                        result.overview_from_zero = v;
                     }
                 }
                 "from_zero" => {
@@ -112,7 +132,7 @@ impl Preferences {
         }
         let range = |r: Option<u32>| r.map(|n| n.to_string()).unwrap_or_else(|| "all".into());
         let text = format!(
-            "version=1\ngrouping={}\ncompact={}\ncolumn_widths={}\nsplitter_permille={}\noverview_range={}\nhistory_range={}\nfrom_zero={}\nui_zoom={}\n",
+            "version=1\ngrouping={}\ncompact={}\ncolumn_widths={}\nsplitter_permille={}\noverview_range={}\nhistory_range={}\nfrom_zero={}\nui_zoom={}\nmetric={}\noverview_metric={}\noverview_from_zero={}\n",
             self.grouping,
             self.compact,
             self.column_widths.map(|w| w.to_string()).join(","),
@@ -120,7 +140,10 @@ impl Preferences {
             range(self.overview_range),
             range(self.history_range),
             self.from_zero,
-            self.ui_zoom
+            self.ui_zoom,
+            self.metric,
+            self.overview_metric,
+            self.overview_from_zero
         );
         let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
         // A same-directory rename publishes the complete file in one filesystem operation.
@@ -149,6 +172,9 @@ mod tests {
             overview_range: None,
             history_range: Some(900),
             from_zero: false,
+            metric: "private_commit".into(),
+            overview_metric: "private_commit".into(),
+            overview_from_zero: false,
             ui_zoom: 50,
         };
         wanted.save(&path).unwrap();

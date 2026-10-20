@@ -470,6 +470,45 @@ try {
   await overviewChoice.getByRole('radio', { name: processState.settings.overview_range === null ? 'All' : `${processState.settings.overview_range/60}m`, exact: true }).check();
   await until(async () => (await view()).settings.overview_range === processState.settings.overview_range, 'Restore range after toggle proof');
   check('Overview toggles, half scale, reduced chrome and reachable dialog close work through the real headless browser', dialogLayout);
+  const chartBefore = await view();
+  const toggle = (group, name) => page.getByRole('group', { name: group, exact: true }).getByRole('radio', { name, exact: true });
+  for (const group of ['Overall memory metric', 'Overall memory Y-axis', 'Selected history metric', 'Selected history Y-axis']) {
+    const proof = await page.getByRole('group', { name: group, exact: true }).evaluate(fieldset => [...fieldset.querySelectorAll('label')].map(label => ({ title: label.title, name: label.querySelector('input').getAttribute('aria-label'), decorative: label.querySelector('svg').getAttribute('aria-hidden') })));
+    assert.equal(proof.length, 2); assert(proof.every(option => option.title && option.name && option.decorative === 'true'));
+  }
+  await toggle('Overall memory metric', 'Private commit').check();
+  await until(async () => (await view()).settings.overview_metric === 'private_commit', 'Overall commit metric');
+  let commitView = await view();
+  assert.equal(commitView.settings.metric, chartBefore.settings.metric, 'History metric stays independent');
+  assert.deepEqual(commitView.system_memory, chartBefore.system_memory, 'Physical header stays on the same paused sample');
+  assert.equal(commitView.overview.capacity, '0');
+  assert(!commitView.overview.layers.some(layer => layer.name === 'Other used RAM'));
+  assert(commitView.overview.samples.every(sample => sample.available === null));
+  assert.match(await page.locator('.overview-panel h2').innerText(), /Measured private commit/);
+  assert.doesNotMatch(await page.locator('.overview-panel .chart-data').textContent(), /of physical RAM|Available|Capacity/);
+  await toggle('Overall memory Y-axis', 'Fit values').check();
+  await until(async () => (await view()).settings.overview_from_zero === false, 'Overall fitted scale');
+  assert.equal((await view()).settings.from_zero, chartBefore.settings.from_zero);
+  await toggle('Selected history metric', 'Private commit').check();
+  await until(async () => (await view()).settings.metric === 'private_commit', 'History commit metric');
+  await toggle('Selected history Y-axis', 'Fit values').check();
+  await until(async () => (await view()).settings.from_zero === false, 'History fitted scale');
+  await toggle('Overall memory Y-axis', 'From zero').check();
+  await until(async () => (await view()).settings.overview_from_zero === true, 'Overall zero scale');
+  assert.equal((await view()).settings.from_zero, false, 'History axis stays independent');
+  const metricPrefs = await readFile(path.join(output, 'preferences.ini'), 'utf8');
+  assert.match(metricPrefs, /^metric=private_commit$/m); assert.match(metricPrefs, /^overview_metric=private_commit$/m); assert.match(metricPrefs, /^overview_from_zero=true$/m);
+  await page.screenshot({ path: path.join(output, 'metric-axis-icons.png') });
+  await toggle('Overall memory metric', 'Private working set').focus();
+  await page.keyboard.press('ArrowRight');
+  await until(async () => (await view()).settings.overview_metric === 'private_commit', 'Metric native keyboard navigation');
+  await toggle('Overall memory metric', 'Private working set').check();
+  await toggle('Selected history metric', chartBefore.settings.metric === 'private_commit' ? 'Private commit' : 'Private working set').check();
+  await toggle('Selected history Y-axis', chartBefore.settings.from_zero ? 'From zero' : 'Fit values').check();
+  await toggle('Overall memory Y-axis', chartBefore.settings.overview_from_zero ? 'From zero' : 'Fit values').check();
+  await until(async () => (await view()).settings.overview_metric === 'private_working_set', 'Restore physical overview');
+  check('Both charts support independent accessible metric/axis icons, commit semantics and saved preferences');
+
 
   await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');
   await until(async () => (await view()).settings.ui_zoom === 100, 'restore test scale');

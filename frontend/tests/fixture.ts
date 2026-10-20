@@ -6,9 +6,10 @@ export function fixture(): View {
     lifecycle: 'live', exited_at: null, private: r, peak: r, commit: { ...r, value: '2147483648' }, change: { value: '-1048576', reason: null } };
   return { revision: 1, displayed_at: 600, displayed_unix_ms: '1800000000000', live_at: 600, paused: false,
     collection: { status: 'live', age_seconds: 0, error: null },
+    system_memory: { capacity: '34359738368', used: '25769803776', available: '8589934592' },
     settings: { grouping: 'name', filter: '', show_exited: false, compact: true, change_seconds: 300,
       sort: { column: 'private_working_set', descending: true }, overview_range: 1800, history_range: 1800,
-      metric: 'private_working_set', from_zero: true, ui_zoom: 100, column_widths: [300, 55, 190, 125, 125, 165], splitter_permille: 680 },
+      metric: 'private_working_set', from_zero: true, overview_metric: 'private_working_set', overview_from_zero: true, ui_zoom: 100, column_widths: [300, 55, 190, 125, 125, 165], splitter_permille: 680 },
     table: { rows: [root, { ...root, id: 'process:123:18000000000000000', parent_id: root.id, depth: 1, has_children: false, expanded: false, selected: false, pid: 123, count: 1 }],
       selected_id: root.id, selection_hidden: false, order_held: false, total_roots: 1, matching_roots: 1, private_scale_bytes: '1073741824', change_scale_bytes: '1048576' },
     selected: { ...root, paths: ['C:\\A\\worker.exe'], paths_complete: true, last_observed: 600, recorded: 600 },

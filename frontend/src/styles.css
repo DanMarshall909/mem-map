@@ -86,12 +86,8 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .summary-values dt { color: var(--secondary); font-size: .9rem; overflow-wrap: anywhere; }
 .summary-values dd { margin: 0; text-align: right; white-space: nowrap; }
 .coverage { color: var(--secondary); font-size: .85rem; margin-block: .6rem; overflow-wrap: anywhere; }
-.history-controls { display: grid; gap: .55rem; margin-block: .8rem; }
-.history-controls .field select { flex: 1; }
-.history-controls .segments:not(.history-range) { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
-.history-controls .segments:not(.history-range) legend { float: none; padding: 0; margin-bottom: .3rem; }
-.history-controls .segments:not(.history-range) label { display: block; }
-.history-controls .segments:not(.history-range) span { text-align: center; padding-inline: .25rem; }
+.history-controls, .chart-controls { display: flex; gap: .55rem; flex-wrap: wrap; align-items: center; }
+.history-controls { margin-block: .8rem; }
 .process-grid { overflow: auto; min-width: 0; min-height: 0; position: relative; background: var(--panel); border: 0; scrollbar-gutter: stable; overscroll-behavior: contain; font-variant-numeric: tabular-nums; }
 .grid-header, .process-row { display: grid; grid-template-columns: var(--columns); min-width: var(--table-min); }
 .grid-header { position: sticky; top: 0; z-index: 2; background: var(--input); border-bottom: 1px solid var(--boundary); }

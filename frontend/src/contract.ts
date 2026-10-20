@@ -18,7 +18,7 @@ export interface Selected {
 export interface Settings {
   grouping: Grouping; filter: string; show_exited: boolean; compact: boolean; change_seconds: number;
   sort: { column: SortColumn; descending: boolean }; overview_range: number | null; history_range: number | null;
-  metric: Metric; from_zero: boolean; ui_zoom: number; column_widths: number[]; splitter_permille: number;
+  overview_metric: Metric; overview_from_zero: boolean; metric: Metric; from_zero: boolean; ui_zoom: number; column_widths: number[]; splitter_permille: number;
 }
 export interface OverviewSample {
   at: number; captured_unix_ms: Decimal; capacity: Decimal; available: Decimal | null; used: Decimal | null;
@@ -37,6 +37,7 @@ export interface Diagnostics {
 export interface View {
   revision: number; displayed_at: number; displayed_unix_ms: Decimal; live_at: number; paused: boolean;
   collection: { status: string; age_seconds: number; error: string | null };
+  system_memory: { capacity: Decimal; used: Decimal | null; available: Decimal | null };
   settings: Settings;
   table: { rows: Row[]; selected_id: string | null; selection_hidden: boolean; order_held: boolean;
     total_roots: number; matching_roots: number; private_scale_bytes: Decimal; change_scale_bytes: Decimal };
@@ -47,12 +48,12 @@ export interface View {
 export type Action =
   | { type: 'set_grouping'; value: Grouping }
   | { type: 'set_filter'; value: string }
-  | { type: 'set_show_exited' | 'set_compact' | 'set_table_interaction_held' | 'set_paused' | 'set_from_zero' | 'set_follow'; value: boolean }
+  | { type: 'set_show_exited' | 'set_compact' | 'set_table_interaction_held' | 'set_paused' | 'set_overview_from_zero' | 'set_from_zero' | 'set_follow'; value: boolean }
   | { type: 'set_change_seconds' | 'set_splitter' | 'set_ui_zoom'; value: number }
   | { type: 'sort_by'; column: SortColumn }
   | { type: 'select_row' | 'toggle_expanded'; id: string }
   | { type: 'show_selected_processes' | 'reset_history_view' | 'select_process_parent' }
-  | { type: 'set_metric'; value: Metric }
+  | { type: 'set_metric' | 'set_overview_metric'; value: Metric }
   | { type: 'set_overview_range' | 'set_history_range'; seconds: number | null }
   | { type: 'set_history_viewport'; end: number; width: number }
   | { type: 'set_column_widths'; value: number[] };

@@ -817,6 +817,9 @@ pub fn series(
     }
 }
 pub fn overview(history: &History, range: Range) -> OverviewPlot {
+    overview_metric(history, range, Metric::PrivateWorkingSet)
+}
+pub fn overview_metric(history: &History, range: Range, metric: Metric) -> OverviewPlot {
     let end = history.at;
     let first = history.system.front().map(|s| s.at).unwrap_or(end);
     let start = match range {
@@ -845,7 +848,25 @@ pub fn overview(history: &History, range: Range) -> OverviewPlot {
             selection: Some(Selection::Name(name.clone())),
         });
     }
+    if metric == Metric::PrivateCommit {
+        layers.remove(0);
+    }
     let samples=history.system.iter().filter(|s|s.at>=start).map(|s| {
+        if metric == Metric::PrivateCommit {
+            let measured = s.groups.values().fold(0_u64, |sum, g| sum.saturating_add(g.commit));
+            let used = (s.measured > 0 || s.observed == 0 && s.complete_scan).then_some(measured);
+            let complete = s.complete_scan && s.measured == s.observed;
+            let named: Vec<_> = history.named_bands.iter().map(|name| s.groups.get(name).map_or(0, |g| g.commit)).collect();
+            let named_total = named.iter().fold(0_u64, |sum, n| sum.saturating_add(*n));
+            let attributed = s.complete_scan && !history.named_bands.iter().any(|name| s.groups.get(name).is_some_and(|g| g.measured < g.observed));
+            let layers = if attributed && used.is_some() {
+                let mut values = vec![measured.saturating_sub(named_total)]; values.extend(named); Some(values)
+            } else { None };
+            return OverviewSample { at: s.at, capacity: 0, available: None, used, layers,
+                measured: s.measured, observed: s.observed,
+                reason: Some(if complete { "Measured process private commit; not system commit or physical RAM".into() }
+                    else { format!("Measured private commit only: {} of {} processes measured{}; unavailable allocations excluded", s.measured, s.observed, if s.complete_scan { "" } else { "; enumeration incomplete" }) }) };
+        }
         let system_valid=s.error.is_none() && s.total>0 && s.available<=s.total;
         let used=system_valid.then(||s.total-s.available);
         let mut reason=s.error.clone();
@@ -870,13 +891,17 @@ pub fn overview(history: &History, range: Range) -> OverviewPlot {
         start,
         end,
         recorded: end.saturating_sub(first),
-        capacity: history
-            .system
-            .iter()
-            .rev()
-            .find(|s| s.error.is_none() && s.total > 0)
-            .map(|s| s.total)
-            .unwrap_or(0),
+        capacity: if metric == Metric::PrivateCommit {
+            0
+        } else {
+            history
+                .system
+                .iter()
+                .rev()
+                .find(|s| s.error.is_none() && s.total > 0)
+                .map(|s| s.total)
+                .unwrap_or(0)
+        },
         layers,
         samples,
     }

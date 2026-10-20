@@ -162,6 +162,8 @@ pub struct Settings {
     pub sort: SortSetting,
     pub overview_range: Option<u32>,
     pub history_range: Option<u32>,
+    pub overview_metric: String,
+    pub overview_from_zero: bool,
     pub metric: String,
     pub from_zero: bool,
     pub ui_zoom: u32,
@@ -207,6 +209,12 @@ impl From<Diagnostics> for DiagnosticView {
     }
 }
 #[derive(Clone, Debug, Serialize)]
+pub struct SystemMemory {
+    pub capacity: String,
+    pub used: Option<String>,
+    pub available: Option<String>,
+}
+#[derive(Clone, Debug, Serialize)]
 pub struct View {
     pub revision: u64,
     pub displayed_at: u32,
@@ -214,6 +222,7 @@ pub struct View {
     pub live_at: u32,
     pub paused: bool,
     pub collection: Collection,
+    pub system_memory: SystemMemory,
     pub settings: Settings,
     pub table: Table,
     pub selected: Option<Selected>,
@@ -241,9 +250,11 @@ pub enum Action {
     SetTableInteractionHeld { value: bool },
     SetPaused { value: bool },
     SetMetric { value: String },
+    SetOverviewMetric { value: String },
     SetOverviewRange { seconds: Option<u32> },
     SetHistoryRange { seconds: Option<u32> },
     SetFromZero { value: bool },
+    SetOverviewFromZero { value: bool },
     SetFollow { value: bool },
     SetHistoryViewport { end: u32, width: u32 },
     ResetHistoryView,
@@ -302,6 +313,16 @@ impl Application {
         {
             *width = (*width).clamp(minimum, 1600);
         }
+        for value in [&mut prefs.metric, &mut prefs.overview_metric] {
+            if !["private_working_set", "private_commit"].contains(&value.as_str()) {
+                *value = "private_working_set".into();
+            }
+        }
+        let metric = if prefs.metric == "private_commit" {
+            Metric::PrivateCommit
+        } else {
+            Metric::PrivateWorkingSet
+        };
         let mut app = Self {
             history: History::default(),
             frozen: None,
@@ -320,7 +341,7 @@ impl Application {
             all_rows: Vec::new(),
             rows: Vec::new(),
             total_roots: 0,
-            metric: Metric::PrivateWorkingSet,
+            metric,
             follow: true,
             history_end: None,
             history_width: None,
@@ -576,7 +597,29 @@ impl Application {
             .collect();
         // Baselines may precede the visible plot. Keep the complete retained
         // decomposition until the projection attaches each sample's context.
-        let overview = dashboard::overview(shown, Range::All);
+        let physical = dashboard::overview(shown, Range::Last(0));
+        let system_memory = SystemMemory {
+            capacity: physical.capacity.to_string(),
+            used: physical
+                .samples
+                .last()
+                .and_then(|s| s.used)
+                .map(|v| v.to_string()),
+            available: physical
+                .samples
+                .last()
+                .and_then(|s| s.available)
+                .map(|v| v.to_string()),
+        };
+        let overview = dashboard::overview_metric(
+            shown,
+            Range::All,
+            if self.prefs.overview_metric == "private_commit" {
+                Metric::PrivateCommit
+            } else {
+                Metric::PrivateWorkingSet
+            },
+        );
         let selected = self
             .selected
             .as_ref()
@@ -648,6 +691,7 @@ impl Application {
             live_at: self.history.at,
             paused: self.frozen.is_some(),
             collection: self.collection(),
+            system_memory,
             settings: Settings {
                 grouping: grouping_name(self.grouping).into(),
                 filter: self.query.clone(),
@@ -660,6 +704,8 @@ impl Application {
                 },
                 overview_range: self.prefs.overview_range,
                 history_range: self.prefs.history_range,
+                overview_metric: self.prefs.overview_metric.clone(),
+                overview_from_zero: self.prefs.overview_from_zero,
                 metric: metric_name(self.metric).into(),
                 from_zero: self.prefs.from_zero,
                 ui_zoom: self.prefs.ui_zoom,
@@ -814,7 +860,7 @@ impl Application {
             Action::SetGrouping { value } => {
                 parse_grouping(value)?;
             }
-            Action::SetMetric { value }
+            Action::SetMetric { value } | Action::SetOverviewMetric { value }
                 if !["private_working_set", "private_commit"].contains(&value.as_str()) =>
             {
                 return Err("Unsupported history metric".into());
@@ -928,7 +974,9 @@ impl Application {
                 }
                 explicit = false;
             }
+            Action::SetOverviewMetric { value } => self.prefs.overview_metric = value,
             Action::SetMetric { value } => {
+                self.prefs.metric = value.clone();
                 self.metric = if value == "private_commit" {
                     Metric::PrivateCommit
                 } else {
@@ -946,6 +994,7 @@ impl Application {
                     self.history_end = None;
                 }
             }
+            Action::SetOverviewFromZero { value } => self.prefs.overview_from_zero = value,
             Action::SetFromZero { value } => self.prefs.from_zero = value,
             Action::SetFollow { value } => {
                 if self.follow && !value {
@@ -1079,6 +1128,160 @@ mod tests {
             processes,
             ..Default::default()
         }
+    }
+    #[test]
+    fn overview_commit_preserves_distinct_named_and_other_group_values_under_filtering() {
+        let mut app = Application::new(Preferences::default());
+        for (at, commits) in [(0, [7, 11, 13, 17]), (300, [19, 23, 29, 31])] {
+            let ps = ["A.exe", "B.exe", "C.exe", "D.exe"]
+                .iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    let mut p = process(i as u32 + 1, name, 400 - i as u64 * 100);
+                    p.commit = commits[i];
+                    p
+                })
+                .collect();
+            let mut snapshot = frame(at, ps);
+            if at == 300 {
+                snapshot.inaccessible = 2;
+            }
+            app.ingest(snapshot);
+        }
+        app.dispatch(
+            serde_json::from_str::<Action>(
+                r#"{"type":"set_overview_metric","value":"private_commit"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let wire = serde_json::to_value(app.view()).unwrap();
+        let sample = &wire["overview"]["samples"][1];
+        assert_eq!(sample["used"], "102");
+        assert_eq!(
+            sample["layers"],
+            serde_json::json!(["31", "19", "23", "29"])
+        );
+        assert_eq!(
+            sample["baseline"]["layers"],
+            serde_json::json!(["17", "7", "11", "13"])
+        );
+        app.dispatch(Action::SetFilter {
+            value: "A.exe".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(app.view()).unwrap()["overview"],
+            wire["overview"]
+        );
+    }
+    #[test]
+    fn overview_axis_and_metrics_are_independent_and_survive_preferences() {
+        let mut app = Application::new(Preferences::default());
+        app.dispatch(
+            serde_json::from_str::<Action>(r#"{"type":"set_overview_from_zero","value":false}"#)
+                .expect("Overview axis action must exist"),
+        )
+        .unwrap();
+        app.dispatch(Action::SetFromZero { value: true }).unwrap();
+        app.dispatch(Action::SetMetric {
+            value: "private_commit".into(),
+        })
+        .unwrap();
+        let wire = serde_json::to_value(app.view()).unwrap();
+        assert_eq!(wire["settings"]["overview_from_zero"], false);
+        assert_eq!(wire["settings"]["from_zero"], true);
+        assert_eq!(wire["settings"]["overview_metric"], "private_working_set");
+        let restored = serde_json::to_value(Application::new(app.preferences()).view()).unwrap();
+        assert_eq!(restored["settings"], wire["settings"]);
+    }
+    #[test]
+    fn commit_overview_keeps_partial_measurements_and_frozen_header_honest() {
+        let mut app = Application::new(Preferences::default());
+        app.ingest(frame(0, vec![process(7, "Worker.exe", 100)]));
+        app.dispatch(
+            serde_json::from_str::<Action>(
+                r#"{"type":"set_overview_metric","value":"private_commit"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let mut partial = frame(2, vec![process(7, "Worker.exe", 125)]);
+        partial.inaccessible = 2;
+        partial.complete_scan = false;
+        partial.system_error = Some("Physical counter unavailable".into());
+        app.ingest(partial);
+        let wire = serde_json::to_value(app.view()).unwrap();
+        let sample = &wire["overview"]["samples"][1];
+        assert_eq!(sample["used"], "250");
+        assert!(sample["layers"].is_null());
+        assert_eq!(sample["measured"], 1);
+        assert_eq!(sample["observed"], 3);
+        assert!(
+            sample["reason"]
+                .as_str()
+                .unwrap()
+                .contains("unavailable allocations excluded")
+        );
+        assert!(wire["system_memory"]["used"].is_null());
+        app.dispatch(Action::SetPaused { value: true }).unwrap();
+        app.ingest(frame(4, vec![process(7, "Worker.exe", 999)]));
+        let frozen = serde_json::to_value(app.view()).unwrap();
+        assert_eq!(frozen["system_memory"], wire["system_memory"]);
+        assert_eq!(frozen["overview"], wire["overview"]);
+        app.dispatch(Action::SetPaused { value: false }).unwrap();
+        let mut missing = frame(6, vec![]);
+        missing.inaccessible = 1;
+        app.ingest(missing);
+        assert!(app.view().overview.samples.last().unwrap().used.is_none());
+    }
+    #[test]
+    fn overview_commit_is_independent_of_physical_header_and_history_metric() {
+        let mut app = Application::new(Preferences::default());
+        for (at, bytes) in [(0, 40_u64 << 30), (300, 50_u64 << 30)] {
+            let mut p = process(7, "Worker.exe", 100);
+            p.commit = bytes;
+            app.ingest(frame(at, vec![p]));
+        }
+        let physical = serde_json::to_value(app.view()).unwrap()["overview"].clone();
+        let set = serde_json::from_str::<Action>(
+            r#"{"type":"set_overview_metric","value":"private_commit"}"#,
+        )
+        .expect("Overview metric toggle must be available");
+        app.dispatch(set).unwrap();
+        let wire = serde_json::to_value(app.view()).unwrap();
+        assert_eq!(wire["settings"]["metric"], "private_working_set");
+        assert_eq!(wire["settings"]["overview_metric"], "private_commit");
+        assert_eq!(wire["system_memory"]["used"], "25769803776");
+        assert_eq!(wire["system_memory"]["available"], "8589934592");
+        assert_eq!(wire["overview"]["samples"][1]["used"], "53687091200");
+        assert_eq!(
+            wire["overview"]["samples"][1]["available"],
+            serde_json::Value::Null
+        );
+        assert_eq!(wire["overview"]["capacity"], "0");
+        assert_eq!(wire["overview"]["layers"][0]["name"], "Other processes");
+        assert_eq!(wire["overview"]["samples"][1]["layers"][1], "53687091200");
+        assert_eq!(
+            wire["overview"]["samples"][1]["baseline"]["layers"][1],
+            "42949672960"
+        );
+        let invalid =
+            serde_json::from_str::<Action>(r#"{"type":"set_overview_metric","value":"invalid"}"#)
+                .unwrap();
+        assert!(app.dispatch(invalid).is_err());
+        assert_eq!(serde_json::to_value(app.view()).unwrap(), wire);
+        app.dispatch(
+            serde_json::from_str::<Action>(
+                r#"{"type":"set_overview_metric","value":"private_working_set"}"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(app.view()).unwrap()["overview"],
+            physical
+        );
     }
     #[test]
     fn overview_baselines_skip_invalid_attribution_and_never_underflow_startup() {

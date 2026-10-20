@@ -60,6 +60,7 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .right-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(14rem, 1fr) minmax(11rem, max-content); gap: .7rem; }
 .overview-panel { min-height: 0; min-width: 0; padding: .7rem; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; margin-bottom: .4rem; }
+.overview-panel > .panel-heading { flex-direction: column; align-items: flex-start; }
 .panel-heading .field { font-size: .9rem; }
 .memory-chart { min-width: 0; position: relative; }
 .chart-label-toggle { position: absolute; inset-block-start: .15rem; inset-inline-end: .2rem; z-index: 12; min-height: 1.7rem; padding: .1rem .4rem; border: 0; background: #202327cc; }

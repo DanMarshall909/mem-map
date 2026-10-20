@@ -50,8 +50,8 @@ export class Dashboard {
   private values: HTMLElement[] = [];
   private changeLabel = el('dt', '', 'Change over 5m');
   private coverage = el('p', 'coverage');
-  private tableStatus = el('p', 'table-status');
-  private barsHelp = el('p', 'bars-help');
+  private tableStatus = el('p', 'table-status sr-only');
+  private barsHelp = el('p', 'bars-help sr-only');
   private notice = el('p', 'notice');
   private zoom: ReturnType<typeof select>;
   private diagnostics = el('dialog', 'diagnostics');
@@ -70,7 +70,8 @@ export class Dashboard {
     this.pause = iconButton('Pause display', 'pause', () => { if (this.view) send({ type: 'set_paused', value: !this.view.paused }); }, 'accent');
     const snapshotCopy = iconButton('Copy snapshot to clipboard', 'copy', () => native('snapshot'), 'accent');
     snapshotCopy.title = 'Copy the displayed, filtered snapshot as CSV, including records outside the viewport; expansion does not change copied membership';
-    const actions = el('div', 'header-actions'); actions.append(this.pause, snapshotCopy); this.header.append(summary, actions);
+    const details = iconButton('Details', 'info', () => this.openDiagnostics(), 'accent'); details.setAttribute('aria-haspopup', 'dialog');
+    const actions = el('div', 'header-actions'); actions.append(this.pause, details, snapshotCopy); this.header.append(summary, actions);
     const workspace = el('div', 'workspace'); const left = this.processPanel; left.setAttribute('aria-label', 'Process table');
     const toolbar = el('div', 'toolbar panel');
     this.group = radios('Group by', [['name', 'Name'], ['path', 'Path'], ['tree', 'Process tree'], ['process', 'Individual processes'], ['family', 'Family']], value => send({ type: 'set_grouping', value }), { name: 'tag', path: 'folder', tree: 'tree', process: 'process', family: 'family' });
@@ -109,6 +110,7 @@ export class Dashboard {
     ['Private working set', 'Private commit', '', 'Peak (last 30m)'].forEach((label, index) => { const dt = index === 2 ? this.changeLabel : el('dt', '', label); const dd = el('dd', '', '—'); dd.tabIndex = 0; this.values.push(dd); summaryValues.append(dt, dd); });
     this.metric = select('Metric:', [['private_working_set', 'Private working set'], ['private_commit', 'Private commit']], value => send({ type: 'set_metric', value: value as Metric }));
     this.ranges = radios('View last', rangeChoices, value => send({ type: 'set_history_range', seconds: value === 'all' ? null : Number(value) }));
+    this.ranges.group.classList.add('history-range'); this.ranges.group.querySelector('legend')!.classList.add('sr-only');
     this.axis = radios('Y-axis', [['zero', 'From zero'], ['fit', 'Fit values']], value => send({ type: 'set_from_zero', value: value === 'zero' }));
     this.reset = iconButton('Reset view', 'reset', () => send({ type: 'reset_history_view' }));
     this.follow = checkbox('Follow latest', value => send({ type: 'set_follow', value })); const navigation = el('div', 'history-navigation'); navigation.append(this.reset, this.follow.label);
@@ -118,10 +120,9 @@ export class Dashboard {
     this.splitter.setAttribute('aria-valuemin', '40'); this.splitter.setAttribute('aria-valuemax', '80');
     workspace.append(left, this.splitter, right);
     this.zoom = select('View scale:', [50, 75, 100, 125, 150, 175, 200].map(n => [String(n), `${n}%`]), value => send({ type: 'set_ui_zoom', value: Number(value) }));
-    const details = iconButton('Details', 'info', () => this.openDiagnostics(), 'link'); details.setAttribute('aria-haspopup', 'dialog');
-    const footerBottom = el('div', 'footer-bottom'); const recording = el('span', '', 'Recording continues when display is paused'); recording.dataset.recording = 'true'; footerBottom.append(recording, this.notice, this.zoom.label);
+    const footerBottom = el('div', 'footer-bottom'); footerBottom.append(this.notice, this.zoom.label);
     this.notice.setAttribute('role', 'status'); this.notice.setAttribute('aria-live', 'polite');
-    this.footer.append(details, footerBottom);
+    this.footer.append(footerBottom);
     const diagnosticHeading = el('h2', '', 'Collection details'); diagnosticHeading.id = 'diagnostic-title'; this.diagnostics.setAttribute('aria-labelledby', diagnosticHeading.id);
     const diagnosticHeader = el('div', 'diagnostic-heading');
     diagnosticHeader.append(diagnosticHeading, iconButton('Close details', 'close', () => this.closeDiagnostics()));
@@ -185,7 +186,6 @@ export class Dashboard {
     text(this.changeLabel, `Change over ${view.settings.change_seconds / 60}m`);
     text(this.coverage, selected ? `${selected.private.measured} of ${selected.private.total} processes measured${partial(selected.private) ? ' · Partial' : ''}${selected.private.reason ? ` · ${selected.private.reason}` : ''}${selected.change.reason ? ` · Change: ${selected.change.reason}` : ''} · ${duration(selected.recorded)} recorded; peak uses the last 30 minutes` : '');
     this.overview.update(view); this.history.update(view);
-    const recording = this.footer.querySelector('[data-recording]')!; text(recording, live ? 'Recording continues when display is paused' : `Recording ${status}`);
     if (view.notice !== this.lastNotice && view.notice) this.showNotice(view.notice);
     if (this.diagnosticOpen) this.renderDiagnostics();
   }

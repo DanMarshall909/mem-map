@@ -28,7 +28,7 @@ test('enlarged text reflows all dashboard regions instead of squeezing the table
   assert.equal(window.getComputedStyle(workspace).display, 'flex', 'At twice the text size, regions need normal vertical flow');
   assert.equal(window.getComputedStyle(workspace).flexDirection, 'column');
   assert.equal(window.getComputedStyle(dashboard.element).height, 'auto');
-  assert.equal(window.getComputedStyle(dashboard.element.querySelector('.process-panel')!).gridTemplateRows, 'auto 16rem auto auto', 'Toolbar growth cannot consume the usable process viewport');
+  assert.equal(window.getComputedStyle(dashboard.element.querySelector('.process-panel')!).gridTemplateRows, 'auto 16rem', 'Toolbar growth cannot consume the usable process viewport');
   // HappyDOM resolves rem with its own fixed base; actual scaled bounds belong
   // to the desktop layout check. Here assert the applied flow and authored units.
   assert.equal(rule('.reflow .process-grid').minHeight, '16rem');

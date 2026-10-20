@@ -620,7 +620,7 @@ Replace the ambiguous RAM and plus/minus control row with explicit controls.
 | Element | Default | Required behaviour |
 |---|---|---|
 | **Metric** dropdown | Private working set | Select the plotted counter; include Private commit when available |
-| **View last** segmented control | 30m | Offer 5m, 15m, 30m and All retained history |
+| **View last** segmented control | 30m | Use the same compact 5m/15m/30m/All toggles as overall memory; retain the accessible group name |
 | **Y-axis** segmented control | From zero | Choose From zero or Fit values |
 | **Reset view** button | Enabled after navigation | Remove manual pan/zoom, preserve selected range and metric, and re-enable Follow latest |
 | **Follow latest** checkbox | Checked | Keep the chart attached to the newest displayed sample |
@@ -671,7 +671,7 @@ Do not fill unobserved periods with invented zeroes.
 
 Omit the routine executable-group/session/unavailable counts from the main footer. Retain collection scope and coverage inside Details.
 
-Make **Details** an orange, underlined action. Its panel should contain:
+Place the orange **Details** info icon beside **Pause display** in the header. Its panel should contain:
 
 - Collection failures and their recorded reasons.
 - Measurement coverage.
@@ -682,9 +682,7 @@ Make **Details** an orange, underlined action. Its panel should contain:
 
 Keep Close in a fixed modal heading and scroll only its content, so the close action stays reachable in small windows and with long diagnostic lists. Close and Escape dismiss the modal, restore opener focus and preserve the current workspace.
 
-At the far right, retain:
-
-**Recording continues when display is paused**
+Keep only action notices and View scale in the main footer. Omit routine recording and table footnotes from the visible layout; retain paused/collector-error feedback and accessible table context.
 
 ---
 

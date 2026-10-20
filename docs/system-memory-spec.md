@@ -188,6 +188,13 @@ Keep the separate full-path copy action.
 
 Place these controls above the table, keeping their scope visually attached to it.
 
+Keep Group by, Show exited processes, Compact rows and Change over on one wrapping
+row, with the filter underneath. Present the two checkboxes as icon toggles with
+their existing accessible names, native checkbox behavior, tooltips, orange checked
+state and visible keyboard focus. Identify the unchanged interval dropdown with a
+clock icon; keep its selected duration visible. At narrow widths, wrap controls
+without clipping the filter or table.
+
 ### Group by
 
 Replace the existing Name / Path / Family / PID button collection with a **single-selection segmented control**:
@@ -230,7 +237,7 @@ The filter must not change the system totals or the overall-memory chart.
 
 ### Show exited processes
 
-Replace **Inactive** with a real checkbox labelled:
+Replace **Inactive** with a native checkbox icon toggle named:
 
 **Show exited processes**
 
@@ -242,7 +249,7 @@ When enabled, retain exited instances for historical inspection. Give them an **
 
 ### Compact rows
 
-Add a checkbox labelled **Compact rows**, checked by default.
+Use a native checkbox icon toggle named **Compact rows**, checked by default.
 
 - **Checked:** show one line per row.
 - **Unchecked:** show a second line containing the executable path or a multiple-path summary.
@@ -253,7 +260,8 @@ Changing density must preserve selection, expansion and scroll position.
 
 Move **Growth over** into this toolbar and rename it:
 
-**Change over: 5 minutes**
+Use a clock icon with a **Change over** accessible name and tooltip; show the
+selected duration, initially **5 minutes**.
 
 Use a dropdown. A practical initial set is 1, 5, 15 and 30 minutes, subject to retained history.
 

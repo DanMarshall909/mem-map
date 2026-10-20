@@ -90,11 +90,12 @@ export class Dashboard {
     });
     this.filter.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); this.clearFilter(); } });
     filterLabel.append(filterCaption, this.filter, this.clear);
-    this.exited = checkbox('Show exited processes', value => send({ type: 'set_show_exited', value }));
-    this.compact = checkbox('Compact rows', value => send({ type: 'set_compact', value }));
-    this.changeChoice = select('Change over:', [['60', '1 minute'], ['300', '5 minutes'], ['900', '15 minutes'], ['1800', '30 minutes']], value => send({ type: 'set_change_seconds', value: Number(value) }));
+    this.exited = checkbox('Show exited processes', value => send({ type: 'set_show_exited', value }), 'exited');
+    this.compact = checkbox('Compact rows', value => send({ type: 'set_compact', value }), 'compact');
+    this.changeChoice = select('Change over:', [['60', '1 minute'], ['300', '5 minutes'], ['900', '15 minutes'], ['1800', '30 minutes']], value => send({ type: 'set_change_seconds', value: Number(value) }), 'clock');
     const options = el('div', 'toolbar-options'); options.append(this.exited.label, this.compact.label, this.changeChoice.label);
-    toolbar.append(this.group.group, filterLabel, options); left.append(toolbar, this.table.element, this.tableStatus, this.barsHelp);
+    const toolbarRow = el('div', 'toolbar-row'); toolbarRow.append(this.group.group, options);
+    toolbar.append(toolbarRow, filterLabel); left.append(toolbar, this.table.element, this.tableStatus, this.barsHelp);
     const right = el('div', 'right-pane'); const overviewPanel = el('section', 'panel overview-panel');
     overviewPanel.id = 'overall-memory-panel';
     const overviewHeading = el('div', 'panel-heading'); overviewHeading.append(this.overviewTitle);

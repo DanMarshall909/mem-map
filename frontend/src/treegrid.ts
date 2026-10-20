@@ -1,6 +1,6 @@
 import type { Action, Row, SortColumn, View } from './contract.ts';
 import { button, el, text } from './dom.ts';
-import { change, elapsed, ratio, reading, readingHelp } from './format.ts';
+import { changePercent, elapsed, ratio, reading, readingHelp } from './format.ts';
 
 const columns: [SortColumn, string][] = [['name', 'Executable / processes'], ['pid', 'PID'], ['private_working_set', 'Private working set'], ['peak', 'Peak (last 30m)'], ['private_commit', 'Private commit'], ['change', 'Change (5m)']];
 export class ProcessTreeGrid {
@@ -57,7 +57,7 @@ export class ProcessTreeGrid {
     // Numeric text owns its space before decorative bars or identity. Headers wrap.
     const minima = [160, 55, 130, 100, 105, 110];
     if (this.view) for (const row of this.view.table.rows) {
-      const values = ['', row.pid?.toString() ?? '—', reading(row.private), reading(row.peak), reading(row.commit), change(row.change)];
+      const values = ['', row.pid?.toString() ?? '—', reading(row.private), reading(row.peak), reading(row.commit), changePercent(row.change, row.private, row.lifecycle).label];
       values.forEach((value, i) => { if (i) minima[i] = Math.max(minima[i], value.length * 8 + 26); });
     }
     const room = this.element.clientWidth / (base / 14);
@@ -86,7 +86,8 @@ export class ProcessTreeGrid {
     columns.forEach(([column, label], index) => {
       const cell = this.header.children[index]; const sorted = view.settings.sort.column === column;
       cell.setAttribute('aria-sort', sorted ? (view.settings.sort.descending ? 'descending' : 'ascending') : 'none');
-      text(cell.firstChild!, `${column === 'change' ? `Change (${view.settings.change_seconds / 60}m)` : label}${sorted ? (view.settings.sort.descending ? ' ↓' : ' ↑') : ''}`);
+      text(cell.firstChild!, `${column === 'change' ? `Change % (${view.settings.change_seconds / 60}m)` : label}${sorted ? (view.settings.sort.descending ? ' ↓' : ' ↑') : ''}`);
+      if (column === 'change') (cell.firstChild as HTMLElement).title = 'Sort by byte change; percentages are relative to the earlier memory reading';
       cell.lastElementChild!.setAttribute('aria-valuenow', String(view.settings.column_widths[index]));
     });
     this.body.style.height = `${view.table.rows.length * this.rowHeight}px`;
@@ -141,10 +142,12 @@ export class ProcessTreeGrid {
     node.setAttribute('aria-posinset', String(siblings.findIndex(r => r.id === row.id) + 1)); node.setAttribute('aria-setsize', String(siblings.length));
     node.tabIndex = row.id === entryId ? 0 : -1;
     node.classList.toggle('selected', row.selected);
+    node.style.setProperty('--memory-fill', `${ratio(row.private.value, this.view.table.private_scale_bytes) * 100}%`);
     const count = row.pid === null ? ` · ${row.count} ${row.count === 1 ? 'process' : 'processes'}` : '';
     const qualifier = row.matching_count < row.count ? ` · ${row.matching_count} matching of ${row.count}` : '';
     const exited = row.lifecycle === 'exited' ? ` · Exited${row.exited_at === null ? '' : ` ${elapsed(row.exited_at)}`}` : '';
-    const help = `${row.name}${count}${qualifier}${exited}; ${row.detail}; PID ${row.pid ?? 'aggregate'}; Private working set ${readingHelp(row.private)}; Private commit ${readingHelp(row.commit)}; Peak ${readingHelp(row.peak)}; Change ${row.change.value ?? 'unavailable'} raw bytes; ${row.change.reason ?? ''}`;
+    const percentage = changePercent(row.change, row.private, row.lifecycle);
+    const help = `${row.name}${count}${qualifier}${exited}; ${row.detail}; PID ${row.pid ?? 'aggregate'}; Private working set ${readingHelp(row.private)}; Private commit ${readingHelp(row.commit)}; Peak ${readingHelp(row.peak)}; Change ${percentage.label}; ${percentage.help}`;
     node.setAttribute('aria-label', help); node.title = help;
     const identity = node.children[0] as HTMLElement;
     if (!identity.firstChild) { const disclosure = button('', () => {}, 'disclosure'); disclosure.tabIndex = -1; disclosure.setAttribute('aria-hidden', 'true'); disclosure.addEventListener('click', e => { e.stopPropagation(); this.send({ type: 'toggle_expanded', id: row.id }); }); identity.append(disclosure, el('div', 'identity')); }
@@ -156,15 +159,10 @@ export class ProcessTreeGrid {
     text(node.children[1], row.pid?.toString() ?? '—');
     [row.private, row.peak, row.commit].forEach((r, i) => {
       const cell = node.children[i + 2] as HTMLElement;
-      if (i === 0) { if (!cell.firstChild) cell.append(el('span', 'memory-bar'), el('span', 'numeric')); const bar = cell.firstElementChild as HTMLElement; bar.style.setProperty('--fill', `${ratio(r.value, this.view!.table.private_scale_bytes) * 100}%`); text(cell.lastChild!, reading(r)); }
-      else text(cell, reading(r)); cell.title = readingHelp(r);
+      text(cell, reading(r)); cell.title = readingHelp(r);
     });
     const delta = node.children[5] as HTMLElement;
-    if (!delta.firstChild) delta.append(el('span', 'change-bar'), el('span', 'numeric'));
-    const bar = delta.firstElementChild as HTMLElement;
-    const n = row.change.value === null ? 0n : BigInt(row.change.value);
-    bar.classList.toggle('decrease', n < 0n); bar.style.setProperty('--fill', `${ratio((n < 0n ? -n : n).toString(), this.view.table.change_scale_bytes) * 50}%`);
-    text(delta.lastChild!, change(row.change)); delta.title = `${row.change.value ?? 'Unavailable'} raw bytes${row.change.reason ? `; ${row.change.reason}` : ''}`;
+    text(delta, percentage.label); delta.style.color = percentage.color; delta.title = percentage.help;
   }
   revealRow(id: string): void {
     const index = this.view?.table.rows.findIndex(row => row.id === id) ?? -1; if (index < 0) return;

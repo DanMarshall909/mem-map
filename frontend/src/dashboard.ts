@@ -1,6 +1,6 @@
 import type { Action, Grouping, Metric, View } from './contract.ts';
 import { button, checkbox, el, radios, select, text } from './dom.ts';
-import { bytes, change, dateTime, duration, elapsed, partial, reading, readingHelp } from './format.ts';
+import { bytes, changePercent, dateTime, duration, elapsed, partial, reading, readingHelp } from './format.ts';
 import { ProcessTreeGrid } from './treegrid.ts';
 import { MemoryChart } from './charts.ts';
 
@@ -65,7 +65,7 @@ export class Dashboard {
     const title = el('h1', '', 'Mem Map'); const summary = el('div', 'header-summary');
     this.progress.max = 100; this.progress.setAttribute('aria-label', 'System physical memory used');
     summary.append(this.system, this.progress, this.available, this.live);
-    this.pause = button('Pause display', () => { if (this.view) send({ type: 'set_paused', value: !this.view.paused }); }, 'orange-outline');
+    this.pause = button('Pause display', () => { if (this.view) send({ type: 'set_paused', value: !this.view.paused }); }, 'accent');
     const exportButton = button('Export CSV', () => native('export'), 'primary');
     exportButton.title = 'Export the displayed, filtered snapshot, including records outside the viewport; expansion does not change export membership';
     const actions = el('div', 'header-actions'); actions.append(this.pause, exportButton); this.header.append(title, summary, actions);
@@ -152,7 +152,7 @@ export class Dashboard {
     this.zoom.input.value = String(view.settings.ui_zoom);
     this.table.update(view, explicitReveal);
     text(this.tableStatus, view.table.order_held ? 'Order held while inspecting' : view.table.selection_hidden ? 'Selection hidden by current filter or grouping; inspector retained' : '');
-    text(this.barsHelp, `Memory bars: relative to largest ${view.settings.grouping === 'process' || view.settings.grouping === 'tree' ? 'process' : 'group'} · Change bars: decrease ← 0 → increase`);
+    text(this.barsHelp, `Row fill: relative to largest ${view.settings.grouping === 'process' || view.settings.grouping === 'tree' ? 'process' : 'group'} · Change: red ↑ · green ↓ · white unchanged`);
     const selected = view.selected; text(this.title, selected?.name ?? 'Select a process');
     text(this.hiddenSelection, view.table.selection_hidden ? 'Selected entity is hidden by the current filter or grouping.' : ''); this.hiddenSelection.hidden = !view.table.selection_hidden;
     text(this.counts, selected ? `${selected.count} ${selected.count === 1 ? 'process' : 'processes'} · ${selected.path_count} executable ${selected.path_count === 1 ? 'path' : 'paths'}${selected.pid === null ? '' : ` · PID ${selected.pid}`}${selected.lifecycle === 'exited' ? ` · Exited${selected.exited_at === null ? '' : ` at ${elapsed(selected.exited_at)} elapsed`}` : selected.lifecycle === 'unavailable' ? ' · Unavailable' : ''}` : '');
@@ -170,8 +170,10 @@ export class Dashboard {
     this.paths.hidden = fullPaths.length < 2; text(this.pathSummary, `${fullPaths.length} known executable paths${selected?.paths_complete ? '' : ' · coverage incomplete'}`);
     const existing = [...this.pathList.children]; fullPaths.forEach((path, i) => { let li = existing[i]; if (!li) { li = el('li'); this.pathList.append(li); } text(li, path); }); existing.slice(fullPaths.length).forEach(li => li.remove());
     [selected?.private, selected?.commit, null, selected?.peak].forEach((r, i) => {
-      const value = i === 2 ? selected ? change(selected.change) : '—' : r ? reading(r) : '—'; text(this.values[i], value);
-      const help = i === 2 ? selected?.change.reason ?? `${selected?.change.value ?? 'Unavailable'} raw bytes` : r ? readingHelp(r) : 'Select an entity'; this.values[i].title = help; this.values[i].setAttribute('aria-label', `${['Private working set', 'Private commit', `Change over ${view.settings.change_seconds / 60}m`, 'Peak private working set last 30 minutes'][i]} ${value}; ${help}`);
+      const percentage = i === 2 && selected ? changePercent(selected.change, selected.private, selected.lifecycle) : null;
+      const value = i === 2 ? percentage?.label ?? '—' : r ? reading(r) : '—'; text(this.values[i], value);
+      if (i === 2) this.values[i].style.color = percentage?.color ?? '#b8c0c6';
+      const help = i === 2 ? percentage?.help ?? 'Select an entity' : r ? readingHelp(r) : 'Select an entity'; this.values[i].title = help; this.values[i].setAttribute('aria-label', `${['Private working set', 'Private commit', `Change over ${view.settings.change_seconds / 60}m`, 'Peak private working set last 30 minutes'][i]} ${value}; ${help}`);
     });
     text(this.changeLabel, `Change over ${view.settings.change_seconds / 60}m`);
     text(this.coverage, selected ? `${selected.private.measured} of ${selected.private.total} processes measured${partial(selected.private) ? ' · Partial' : ''}${selected.private.reason ? ` · ${selected.private.reason}` : ''}${selected.change.reason ? ` · Change: ${selected.change.reason}` : ''} · ${duration(selected.recorded)} recorded; peak uses the last 30 minutes` : '');

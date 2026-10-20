@@ -102,3 +102,23 @@ flow with a usable table viewport and a bounded inspector. Ordinary desktop
 sizes retain the split workspace and visible header/footer. The user explicitly
 removed the repeated-scroll regression on 2026-10-20; it is not a maintained test
 or a release gate for this migration.
+
+## Compact presentation (MM-010)
+
+Working-set proportions use a subtle full-row background with exact numeric
+cells. Percentage change is presentation over the existing coherent byte delta:
+baseline = current private bytes minus delta. BigInt arithmetic preserves large
+integers; partial/unknown endpoints stay unavailable, growth from zero is New,
+exact zero is white, and a valid confirmed exit uses zero current memory.
+Red/green text strength increases with absolute percentage, saturating at 100%.
+The palette retains readable contrast over the row fill. Raw bytes/reasons remain
+in tooltip/accessibility text and CSV. Sorting still uses the backend byte delta;
+the change header describes that distinction.
+
+Chart compactness follows its own width divided by interface scale. Compact
+labels use a manual HTML popover, shown by hover/focus or an info-button tap.
+The popup sits beside the plot when possible and stays in the viewport; it adds
+no layout height or label gutter and does not change sampling/drag coordinates.
+Escape, outside pointer input and leaving the chart by keyboard dismiss it.
+Normal desktop charts retain inline labels. Flat surfaces retain input underlines,
+selection/focus accents, column resizing and forced-color control boundaries.

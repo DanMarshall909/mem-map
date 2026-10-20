@@ -108,7 +108,7 @@ try {
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   browser = await launchHeadless(chromium);
   check('Browser is actually headless', await requireHeadless(browser));
-  page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, hasTouch: true });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.exposeFunction('__memmapTestInvoke', invoke);
   await page.addInitScript(() => { window.__TAURI_INTERNALS__ = { invoke: (command, args = {}) => window.__memmapTestInvoke(command, args) }; });
@@ -253,6 +253,63 @@ try {
   await assert.rejects(invoke('dispatch', {action:{type:'set_ui_zoom',value:150,unexpected:true}}), /unknown field/);
   assert.equal((await view()).settings.ui_zoom, beforeInvalid);
   check('Invalid test-boundary commands fail without changing the controller');
+  await page.setViewportSize({ width: 585, height: 774 });
+  await page.getByRole('combobox', { name: /View scale/ }).selectOption('75');
+  await until(async () => (await view()).settings.ui_zoom === 75, 'compact browser text scale');
+  const compactChart = page.locator('.overview-panel .memory-chart');
+  await compactChart.locator('.chart-label-toggle').waitFor({ state: 'visible' });
+  await page.mouse.move(0, 0); await page.locator('.system-summary').click();
+  await compactChart.locator('.chart-labels').waitFor({ state: 'hidden' });
+  const compactDrawing = compactChart.locator('svg');
+  const plotBefore = await compactDrawing.getAttribute('viewBox');
+  const compactProof = await compactDrawing.evaluate(svg => {
+    const line = svg.querySelector('line'); const box = svg.viewBox.baseVal;
+    return { fraction: (Number(line.getAttribute('x2')) - Number(line.getAttribute('x1'))) / box.width };
+  });
+  assert(compactProof.fraction > .85, 'Compact graph must use almost all available width');
+  await compactDrawing.hover();
+  await compactChart.locator('.chart-labels').waitFor({ state: 'visible' });
+  const overlayProof = await compactChart.evaluate(chart => {
+    const plot = chart.querySelector('svg').getBoundingClientRect(), labels = chart.querySelector('.chart-labels').getBoundingClientRect();
+    return { overlap: Math.max(0, Math.min(plot.right, labels.right) - Math.max(plot.left, labels.left)) * Math.max(0, Math.min(plot.bottom, labels.bottom) - Math.max(plot.top, labels.top)),
+      insideViewport: labels.left >= 0 && labels.right <= innerWidth && labels.top >= 0 && labels.bottom <= innerHeight };
+  });
+  assert.equal(overlayProof.overlap, 0, 'When space is available, revealed labels must not block the plot pointer target');
+  assert(overlayProof.insideViewport, 'Revealed chart labels remain readable inside the viewport');
+  assert.equal(await compactDrawing.getAttribute('viewBox'), plotBefore, 'Hover cannot change chart pointer coordinates');
+  await page.screenshot({ path: path.join(output, 'compact-labels.png') });
+  await page.mouse.move(0, 0); await page.locator('.system-summary').click();
+  await compactChart.locator('.chart-labels').waitFor({ state: 'hidden' });
+  await page.screenshot({ path: path.join(output, 'compact-idle.png') });
+  await compactChart.focus(); await compactChart.locator('.chart-labels').waitFor({ state: 'visible' });
+  await compactChart.press('Escape'); await compactChart.locator('.chart-labels').waitFor({ state: 'hidden' });
+  const labelToggleBounds = await compactChart.locator('.chart-label-toggle').boundingBox(); assert(labelToggleBounds);
+  await page.touchscreen.tap(labelToggleBounds.x + labelToggleBounds.width / 2, labelToggleBounds.y + labelToggleBounds.height / 2);
+  await compactChart.locator('.chart-labels').waitFor({ state: 'visible' });
+  await page.touchscreen.tap(labelToggleBounds.x + labelToggleBounds.width / 2, labelToggleBounds.y + labelToggleBounds.height / 2);
+  await compactChart.locator('.chart-labels').waitFor({ state: 'hidden' });
+  check('585x774 charts reveal labels by hover, keyboard or tap without shrinking or obstructing the plot', { ...compactProof, ...overlayProof });
+  const historyDrawing = page.locator('.inspector-scroll .memory-chart svg');
+  await historyDrawing.scrollIntoViewIfNeeded(); await historyDrawing.hover();
+  const historyBounds = await historyDrawing.boundingBox(); assert(historyBounds);
+  await page.mouse.move(historyBounds.x + historyBounds.width * .45, historyBounds.y + historyBounds.height * .7);
+  await page.mouse.down(); await page.mouse.move(historyBounds.x + historyBounds.width * .65, historyBounds.y + historyBounds.height * .7); await page.mouse.up();
+  await until(async () => (await view()).history_viewport.manual_end !== null && !(await view()).history_viewport.follow, 'compact history drag');
+  await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+  await until(async () => (await view()).history_viewport.manual_end === null && (await view()).history_viewport.follow, 'reset compact history drag');
+  check('Compact history remains draggable while labels are revealed');
+  const focusedRow = grid.locator('[data-row-id]').first(); await focusedRow.focus();
+  const flatProof = await focusedRow.evaluate(row => ({
+    background: getComputedStyle(row).backgroundImage, focus: document.activeElement === row,
+    outline: parseFloat(getComputedStyle(row).outlineWidth), rowLine: parseFloat(getComputedStyle(row).borderBottomWidth),
+    obsoleteBars: document.querySelectorAll('.memory-bar, .change-bar').length,
+    panels: [...document.querySelectorAll('.panel, .process-grid, .legend-entry, .segments span')].every(element => parseFloat(getComputedStyle(element).borderTopWidth) === 0)
+  }));
+  assert(flatProof.background.includes('linear-gradient') && flatProof.focus && flatProof.outline >= 1);
+  assert.equal(flatProof.rowLine, 0); assert.equal(flatProof.obsoleteBars, 0); assert(flatProof.panels);
+  check('Flat panels and row-wide fills preserve visible focus and exact numeric cells', flatProof);
+  await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');
+  await until(async () => (await view()).settings.ui_zoom === 100, 'restore test scale');
   const preferences = await readFile(path.join(output, 'preferences.ini'), 'utf8');
   assert.match(preferences, /^ui_zoom=100$/m);
   assert.match(preferences, /^grouping=name$/m);

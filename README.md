@@ -22,6 +22,13 @@ readings come from one completed collection snapshot.
   group totals within the retained 30-minute window. Change uses the last valid
   complete sample at or before the requested target, at most two collection
   intervals old. Insufficient or incomplete endpoints have explanations.
+- Memory proportions fill the row background. Changes display as signed
+  percentages: growth trends red, decline green and unchanged values stay white.
+  Stronger changes have stronger color; original bytes remain in tooltips and CSV.
+  Panels and controls use flat surfaces with visible focus and selection accents.
+- At narrow chart widths, labels appear on hover, keyboard focus or the info
+  button. The plot keeps its width while the labels float beside it. Escape or
+  moving focus away dismisses them; roomy charts keep their labels inline.
 - **Pause display** freezes displayed readings, ordering and chart endpoints while
   recording continues. Selection, filtering and full-path copying remain usable.
   Resume advances to the latest completed snapshot. A history chart with

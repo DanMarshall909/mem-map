@@ -1,4 +1,4 @@
-import type { ChangeReading, Decimal, Reading } from './contract.ts';
+import type { ChangeReading, Decimal, Reading, Row } from './contract.ts';
 
 export function bytes(value: Decimal | null): string {
   if (value === null) return '—';
@@ -13,6 +13,28 @@ export function change(value: ChangeReading): string {
   if (value.value === null) return '—';
   const label = bytes(value.value);
   return BigInt(value.value) > 0n && !/^0\.0 /.test(label) ? `+${label}` : label;
+}
+/** Presentation only: the backend supplies the coherent exact byte delta. */
+export function changePercent(value: ChangeReading, current: Reading, lifecycle: Row['lifecycle'] = 'live'): { label: string; color: string; help: string } {
+  const raw = `${change(value)}; ${value.value ?? 'Unavailable'} raw bytes${value.reason ? `; ${value.reason}` : ''}`;
+  const unavailable = (reason: string) => ({ label: '—', color: '#b8c0c6', help: `${raw}; Percentage unavailable: ${reason}` });
+  if (value.value === null) return unavailable('no complete baseline change');
+  const delta = BigInt(value.value);
+  const confirmedExit = lifecycle === 'exited' && delta <= 0n;
+  if (!confirmedExit && (current.value === null || partial(current))) return unavailable('current memory measurement is incomplete');
+  const now = confirmedExit ? 0n : BigInt(current.value!);
+  const baseline = now - delta;
+  if (now < 0n || baseline < 0n) return unavailable('inconsistent baseline');
+  const help = `${raw}; Percentage relative to ${baseline} baseline bytes (${bytes(baseline.toString())})`;
+  if (delta === 0n) return { label: '0.0%', color: '#ffffff', help };
+  const positive = delta > 0n, magnitude = positive ? delta : -delta;
+  const target = positive ? [255, 160, 160] : [135, 220, 170];
+  const strength = baseline === 0n ? 1 : Math.sqrt(ratio(magnitude.toString(), baseline.toString()));
+  const color = `rgb(${target.map(channel => Math.round(255 + (channel - 255) * strength)).join(', ')})`;
+  if (baseline === 0n) return { label: 'New', color, help: `${raw}; Increased from zero; no finite percentage` };
+  const tenths = (magnitude * 1000n + baseline / 2n) / baseline;
+  const label = `${positive ? '+' : '−'}${tenths === 0n ? '<0.1' : `${tenths / 10n}.${tenths % 10n}`}%`;
+  return { label, color, help };
 }
 export function partial(r: Reading): boolean { return r.value !== null && (r.measured < r.total || !r.enumeration_complete); }
 export function reading(r: Reading): string { return `${bytes(r.value)}${partial(r) ? ' · Partial' : ''}`; }

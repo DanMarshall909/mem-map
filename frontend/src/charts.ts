@@ -25,6 +25,12 @@ export class MemoryChart {
   private readout = el('div', 'chart-readout');
   private legend = el('div', 'legend');
   private inspection = el('details', 'chart-inspection');
+  private labels = el('div', 'chart-labels');
+  private labelToggle: HTMLButtonElement;
+  private compact = false;
+  private pointerInside = false;
+  private pinned = false;
+  private dismissed = false;
   private entries: HTMLButtonElement[] = [];
   private view: View | null = null;
   private kind: 'overview' | 'history';
@@ -35,14 +41,36 @@ export class MemoryChart {
   private plot = { width: 1, left: 0, right: 1 };
   constructor(kind: 'overview' | 'history', send: (action: Action) => void) {
     this.kind = kind; this.send = send;
+    this.element.setAttribute('role', 'group');
+    this.element.setAttribute('aria-label', `${kind === 'overview' ? 'Overall memory' : 'Selected history'} chart; focus or hover for labels`);
+    this.labels.id = `${kind}-chart-labels`;
+    this.labelToggle = button('ⓘ', () => { this.pinned = !this.pinned; this.dismissed = !this.pinned; this.updateLabels(); }, 'chart-label-toggle');
+    this.labelToggle.setAttribute('aria-controls', this.labels.id);
+    this.element.addEventListener('pointerenter', e => { if (e.pointerType !== 'touch') { this.pointerInside = true; this.dismissed = false; this.updateLabels(); } });
+    this.element.addEventListener('pointerleave', () => { this.pointerInside = false; this.updateLabels(); });
+    this.element.addEventListener('focusin', () => { this.dismissed = false; this.updateLabels(); });
+    this.element.addEventListener('focusout', () => queueMicrotask(() => {
+      if (!this.element.contains(document.activeElement)) this.dismissLabels(); else this.updateLabels();
+    }));
+    document.addEventListener('pointerdown', e => {
+      if (this.compact && !this.element.contains(e.target as Node)) this.dismissLabels();
+    });
+    window.addEventListener('scroll', () => { if (this.compact && !this.labels.hidden) this.positionLabels(); }, { capture: true, passive: true });
+    this.element.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && this.compact) {
+        e.preventDefault(); e.stopPropagation(); this.element.focus({ preventScroll: true });
+        this.dismissLabels();
+      }
+    });
     this.data.tabIndex = 0; this.data.setAttribute('aria-label', `${kind === 'overview' ? 'Overall memory' : 'Selected process history'} chart data; use Left and Right Arrow to inspect samples`);
     this.data.setAttribute('role', 'group');
     this.description.id = `${kind}-chart-description`; this.element.setAttribute('aria-describedby', this.description.id);
     this.inspection.append(el('summary', '', 'Chart data'), this.navigator, this.data);
     this.inspection.addEventListener('toggle', () => this.draw());
-    this.element.append(this.drawing, this.readout, this.legend, this.description);
-    if (kind === 'overview') this.element.append(this.inspection);
-    else this.element.append(this.navigator, this.data);
+    this.labels.append(this.readout, this.legend, this.description);
+    if (kind === 'overview') this.labels.append(this.inspection);
+    else this.labels.append(this.navigator, this.data);
+    this.element.append(this.drawing, this.labelToggle, this.labels);
     this.navigator.append(button('Previous sample', () => this.step(-1), 'quiet'), button('Next sample', () => this.step(1), 'quiet'));
     this.data.addEventListener('keydown', e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); this.step(e.key === 'ArrowLeft' ? -1 : 1); } });
     this.drawing.addEventListener('pointermove', e => {
@@ -68,6 +96,35 @@ export class MemoryChart {
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.draw()).observe(this.element);
   }
   update(view: View): void { this.view = view; this.draw(); this.updateReadout(); }
+  private dismissLabels(): void { this.pinned = false; this.dismissed = true; this.updateLabels(); }
+  private updateLabels(): void {
+    const visible = !this.compact || !this.dismissed && (this.pinned || this.pointerInside || this.element.contains(document.activeElement));
+    const popover = typeof this.labels.showPopover === 'function' && this.labels.isConnected;
+    if (popover && this.labels.matches(':popover-open') && (!visible || !this.compact)) this.labels.hidePopover();
+    if (this.compact) this.labels.setAttribute('popover', 'manual');
+    else { this.labels.removeAttribute('popover'); this.labels.style.left = ''; this.labels.style.top = ''; }
+    this.labels.hidden = !visible; this.labelToggle.hidden = !this.compact;
+    this.element.tabIndex = this.compact ? 0 : -1;
+    this.element.classList.toggle('labels-visible', this.compact && visible);
+    this.labelToggle.setAttribute('aria-expanded', String(visible));
+    this.labelToggle.setAttribute('aria-label', `${visible ? 'Hide' : 'Show'} chart labels`);
+    if (this.compact && visible) {
+      if (popover && !this.labels.matches(':popover-open')) this.labels.showPopover();
+      this.positionLabels();
+    }
+  }
+  private positionLabels(): void {
+    const anchor = this.drawing.getBoundingClientRect(), box = this.labels.getBoundingClientRect();
+    const clamp = (value: number, maximum: number) => Math.max(8, Math.min(value, Math.max(8, maximum - 8)));
+    let left = anchor.left, top = anchor.top;
+    // Place beside the plot where possible. The top layer avoids clipping by
+    // scrolling panels, and leaves pointer sampling/history dragging reachable.
+    if (anchor.left >= box.width + 8) left = anchor.left - box.width;
+    else if (window.innerWidth - anchor.right >= box.width + 8) left = anchor.right;
+    else top = window.innerHeight - anchor.bottom >= box.height + 8 ? anchor.bottom : anchor.top - box.height;
+    this.labels.style.left = `${clamp(left, window.innerWidth - box.width)}px`;
+    this.labels.style.top = `${clamp(top, window.innerHeight - box.height)}px`;
+  }
   zoom(inward: boolean): void {
     if (!this.view?.history) return;
     const width = this.view.history_viewport.manual_width ?? this.view.settings.history_range ?? Math.max(30, this.view.history.end - this.view.history.start);
@@ -102,18 +159,20 @@ export class MemoryChart {
     const view = this.view; if (!view) return;
     const scale = view.settings.ui_zoom / 100;
     const width = Math.max(260 * scale, this.element.clientWidth || 600 * scale);
+    this.compact = width / scale < 440;
+    this.element.classList.toggle('chart-compact', this.compact); this.updateLabels();
     let height = 220 * scale;
     if (this.kind === 'overview') {
       const panel = this.element.parentElement;
       const pane = panel?.parentElement;
-      // The plot yields space to full legend names and exact readings. Four Y
-      // labels still have 18px separation at the minimum, before browser DPI.
-      const overhead = [...this.element.children].filter(node => node !== this.drawing).reduce((sum, node) => {
+      // Wide plots reserve room for inline labels. Compact labels float outside
+      // normal flow, so their plot can use the released width and height.
+      const overhead = [...this.element.children].filter(node => node !== this.drawing && node !== this.labelToggle && !this.compact).reduce((sum, node) => {
         const style = window.getComputedStyle(node); return sum + node.getBoundingClientRect().height + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
       }, 0) + (panel?.querySelector('.panel-heading')?.getBoundingClientRect().height ?? 0) + 28 * scale;
-      height = this.element.closest('.reflow') ? 200 * scale : Math.max(112 * scale, Math.min(200 * scale, (pane?.clientHeight || 760 * scale) * .45 - overhead));
+      height = this.element.closest('.reflow') ? 200 * scale : Math.max((this.compact ? 168 : 112) * scale, Math.min((this.compact ? 360 : 200) * scale, (pane?.clientHeight || 760 * scale) * .45 - overhead));
     }
-    const left = 52 * scale, right = width - (this.kind === 'overview' ? 145 : 18) * scale, top = 25 * scale, bottom = height - 34 * scale;
+    const left = (this.compact ? 12 : 52) * scale, right = width - (this.compact ? 12 : this.kind === 'overview' ? 145 : 18) * scale, top = 25 * scale, bottom = height - 34 * scale;
     this.plot = { width, left, right };
     this.drawing.setAttribute('viewBox', `0 0 ${width} ${height}`); this.drawing.style.height = `${height}px`;
     this.drawing.replaceChildren();
@@ -127,11 +186,12 @@ export class MemoryChart {
       if (!view.settings.from_zero && values.length) { min = Math.max(0, Math.min(...values)); const padding = Math.max(1048576, (max - min) * 0.1); min = Math.max(0, min - padding); max += padding; }
     }
     const y = (value: number) => bottom - (value - min) / Math.max(1, max - min) * (bottom - top);
-    const addText = (px: number, py: number, value: string, anchor = 'start', color = '#b8c0c6') => this.drawing.append(svg('text', { x: px, y: py, 'font-size': 12 * scale, 'text-anchor': anchor, fill: color }, value));
+    const annotations = svg('g', { class: 'chart-annotations' });
+    const addText = (px: number, py: number, value: string, anchor = 'start', color = '#b8c0c6') => annotations.append(svg('text', { x: px, y: py, 'font-size': 12 * scale, 'text-anchor': anchor, fill: color }, value));
     const unit = this.kind === 'overview' ? 1073741824 : 1048576;
     const capacity = BigInt(view.overview.capacity) > 0n ? view.overview.capacity : null;
     addText(left, 14 * scale, this.kind === 'overview' ? `Capacity: ${bytes(capacity)}` : 'MiB');
-    if (this.kind === 'history' || capacity !== null) for (let i = 0; i <= 3; i++) { const value = min + (max - min) * i / 3; const py = y(value); this.drawing.append(svg('line', { x1: left, y1: py, x2: right, y2: py, stroke: '#42494f', 'stroke-dasharray': i === 3 && this.kind === 'overview' ? '5 4' : '0' })); addText(left - 6 * scale, py + 4 * scale, (value / unit).toFixed(1), 'end'); }
+    if (this.kind === 'history' || capacity !== null) for (let i = 0; i <= 3; i++) { const value = min + (max - min) * i / 3; const py = y(value); this.drawing.append(svg('line', { x1: left, y1: py, x2: right, y2: py, stroke: '#42494f', 'stroke-dasharray': i === 3 && this.kind === 'overview' ? '5 4' : '0' })); addText(left + (this.compact ? 4 : -6) * scale, py + 4 * scale, (value / unit).toFixed(1), this.compact ? 'start' : 'end'); }
     this.drawing.append(svg('line', { x1: left, y1: top, x2: left, y2: bottom, stroke: '#b8c0c6' }));
     addText(left, height - 12 * scale, elapsed(source.start)); addText(right, height - 12 * scale, elapsed(source.end), 'end');
     if (this.kind === 'overview') {
@@ -152,12 +212,15 @@ export class MemoryChart {
       this.readout.replaceChildren(el('span', '', `Capacity ${bytes(capacity)}`), el('span', '', `Used ${bytes(latest?.used ?? null)}`), el('span', '', `Available ${bytes(latest?.available ?? null)}`));
       if (latest?.used !== null && latest?.used !== undefined) {
         const py = y(Number(latest.used)); this.drawing.append(svg('circle', { cx: x(latest.at), cy: py, r: 3 * scale, fill: '#eceff1' }));
-        this.drawing.append(svg('path', { d: `M${right - 6 * scale},${top} h${-5 * scale} M${right - 6 * scale},${top} V${py} h${-5 * scale}`, fill: 'none', stroke: '#b8c0c6' }));
+        if (!this.compact) this.drawing.append(svg('path', { d: `M${right - 6 * scale},${top} h${-5 * scale} M${right - 6 * scale},${top} V${py} h${-5 * scale}`, fill: 'none', stroke: '#b8c0c6' }));
         const endpointY = Math.max(top + 30 * scale, py + 4 * scale);
         const availableY = Math.min(endpointY - 16 * scale, Math.max(top + 11 * scale, (top + py) / 2 + 4 * scale));
-        if (endpointY !== py + 4 * scale) this.drawing.append(svg('line', { x1: right, y1: py, x2: right + 6 * scale, y2: endpointY - 4 * scale, stroke: '#eceff1' }));
-        addText(right + 8 * scale, endpointY, bytes(latest.used), 'start', '#eceff1');
-        addText(right + 8 * scale, availableY, `Available ${bytes(latest.available)}`);
+        if (this.compact) addText(right - 4 * scale, Math.max(top + 16 * scale, py - 7 * scale), bytes(latest.used), 'end', '#eceff1');
+        else {
+          if (endpointY !== py + 4 * scale) this.drawing.append(svg('line', { x1: right, y1: py, x2: right + 6 * scale, y2: endpointY - 4 * scale, stroke: '#eceff1' }));
+          addText(right + 8 * scale, endpointY, bytes(latest.used), 'start', '#eceff1');
+          addText(right + 8 * scale, availableY, `Available ${bytes(latest.available)}`);
+        }
       }
       overview.layers.forEach((layer, index) => {
         let entry = this.entries[index];
@@ -174,5 +237,6 @@ export class MemoryChart {
       this.legend.hidden = true; text(this.readout, `${view.settings.from_zero ? 'From zero' : 'Fit values'} · ${bytes(Math.round(min).toString())} — ${bytes(Math.round(max).toString())}`);
       text(this.description, `Requested: ${rangeLabel(view.settings.history_range)} · Recorded: ${duration(history.recorded)}`);
     }
+    this.drawing.append(annotations);
   }
 }

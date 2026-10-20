@@ -16,7 +16,7 @@ Keep three primary regions:
 
 At the reference window size, give the table approximately **68% of the workspace width** and the right pane **32%**. Add a draggable vertical splitter and remember its position.
 
-Use approximately 16 px outer padding, 8–12 px between panels, and 12–16 px inside the right-hand panels. Keep panel boundaries thin and flat.
+Use approximately 16 px outer padding, 8–12 px between panels, and 12–16 px inside the right-hand panels. Use flat tonal separation between panels; retain clear keyboard-focus, selection and input affordances.
 
 The right pane should contain two vertically stacked panels:
 
@@ -34,16 +34,19 @@ Define shared resources instead of assigning colours separately to individual co
 | Window background | `#202327` | Application canvas |
 | Panel background | `#282D32` | Table and inspector surfaces |
 | Input background | `#202327` | Search, dropdowns and path field |
-| Subtle divider | `#42494F` | Panel edges and row separators |
+| Subtle divider | `#42494F` | Essential separators and resize affordances |
 | Control boundary | `#727C84` | Inputs, checkboxes and other boundaries needed to identify controls |
 | Primary text | `#ECEFF1` | Names, values and important labels |
 | Secondary text | `#B8C0C6` | Supporting information and axis labels |
-| Orange accent | `#F2A14A` | Selected options, selection edge and positive changes |
-| Green accent | `#6CBC8B` | Memory bars, negative changes and selected-process history |
+| Orange accent | `#F2A14A` | Selected options and selection edge |
+| Green accent | `#6CBC8B` | Subtle row memory fill and selected-process history |
+| Increasing change | `#FFA0A0` | Positive percentage text at full intensity |
+| Decreasing change | `#87DCAA` | Negative percentage text at full intensity |
+| Unchanged | `#FFFFFF` | Exact zero change |
 | Selected row background | `#3D352C` | Restrained orange tint |
 | Hover background | `#343A40` | Pointer hover |
 
-Use dark text on bright orange or green filled controls. Keep secondary buttons dark with an outline.
+Use dark text on bright orange or green filled controls. Keep secondary buttons dark and flat, with clear hover and keyboard-focus states.
 
 As a readability target, use at least 4.5:1 contrast for normal text and 3:1 for essential control indicators and graphical boundaries. These are useful benchmarks for this desktop interface. The proposed primary and secondary text colours provide approximately 12.0:1 and 7.5:1 against the panel background, respectively. [W3C](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html?utm_source=chatgpt.com)
 
@@ -112,7 +115,7 @@ Use the actual configured interval. Show a clear alternate state when the collec
 
 ### Pause display
 
-Rename the existing **Pause** button to **Pause display** and use an orange outline.
+Rename the existing **Pause** button to **Pause display** and use a flat button with orange text and a clear keyboard-focus state.
 
 Define the behaviour precisely:
 
@@ -225,10 +228,10 @@ Use a virtualized tree grid with a fixed header.
 |---|---|
 | **Executable / processes** | Show the executable name, hierarchy chevron and labelled process count |
 | **PID** | Show a real PID for individual instances; use an em dash for aggregates |
-| **Private working set** | Show current private resident memory, an in-cell bar and exact value |
+| **Private working set** | Show current private resident memory as a full-row proportional background and exact value |
 | **Peak (last 30m)** | Show the observed peak of the same metric over the requested window |
 | **Private commit** | Show private committed memory as a separate value |
-| **Change (5m)** | Show the signed change over the selected comparison interval |
+| **Change % (5m)** | Show signed percentage over the selected comparison interval; retain exact byte change in tooltip/accessibility text |
 
 The first column should absorb available width. Give numeric columns stable widths and right-align all numbers.
 
@@ -264,11 +267,11 @@ Use:
 
 Keep ordinary row text off-white. Avoid making every value orange when selected.
 
-### Private working-set bars
+### Private working-set row backgrounds
 
-Divide the cell into a bar region and a fixed-width numeric region.
+Paint a subtle proportional background across the entire row behind its cells.
 
-The numeric value must remain aligned at the same right edge regardless of bar length.
+The numeric value must remain aligned at the same right edge regardless of fill length. Keep focus, selection and exact values readable over the fill.
 
 For Name and Path grouping:
 
@@ -284,22 +287,31 @@ For individual-process and process-tree modes, use the largest matching process 
 
 Keep the scale frozen while the display is paused.
 
-### Change bars
+### Percentage changes
 
-Use a diverging bar with a visible central zero reference:
+Show signed percentage change relative to the prior reading:
 
-- Decreases extend left in green.
-- Increases extend right in orange.
-- Both sides use the same absolute scale.
-- Preserve the signed numeric value and unit.
+```text
+Baseline = current private working set - coherent byte change
+Percentage = coherent byte change / baseline x 100
+```
 
-Retain the help strip:
+- Increases use red text; decreases use green text.
+- Greater absolute percentage makes the color stronger, saturating at 100%.
+- Exact zero is white and displays **0.0%**.
+- Tiny nonzero changes preserve direction as **+<0.1%** or **−<0.1%**.
+- Growth from a zero baseline displays **New**, without an invented finite percentage.
+- Unknown or partial endpoints remain unavailable with an explanation.
+- A valid confirmed exit uses zero current memory and can show **−100.0%**.
 
-**Memory bars: relative to largest group · Change bars: decrease ← 0 → increase**
+Use exact integer bytes for the calculation. Preserve raw byte values and reasons
+in tooltips, keyboard-accessible descriptions and CSV. Color indicates direction
+and magnitude; it does not establish a fault. Keep signed text meaningful without
+color and readable over full-row backgrounds.
 
-Orange here means increasing allocation. It should not automatically imply a fault.
-
-When a change rounds to zero, display **0.0 MiB** consistently. Preserve the exact value in the tooltip.
+Retain a help strip explaining relative row fill and red increases, green decreases,
+white unchanged. The change header must disclose that sorting continues to use
+the backend's raw byte delta, rather than percentage magnitude.
 
 ### Sorting and live stability
 
@@ -456,11 +468,13 @@ At the latest displayed timestamp, show:
 - A marker and label at the stack endpoint: **24.20 GiB**.
 - A bracket between that endpoint and capacity: **Available 7.50 GiB**.
 
-Position both annotations from the actual values. Reserve enough space at the right of the plot so labels remain inside the panel.
+Position both annotations from the actual values. For roomy charts, reserve enough space at the right of the plot so labels remain inside the panel. For compact charts, reveal annotations through hover, keyboard focus or an info-button tap rather than reserving a label gutter.
 
 ### Legend and interaction
 
-Place the legend below the plot in the same order as the layers. Let it wrap without truncating names.
+For roomy charts, place the legend below the plot in the same order as the layers. Let it wrap without truncating names.
+
+Determine compactness from each chart's own width relative to UI text scale. At compact widths, hide the legend, readout, descriptions and SVG annotations from normal layout until hover, keyboard focus or an info-button tap. Reveal labels in a viewport-clamped popover beside the plot when possible, without changing plot/data coordinates or blocking plot input. Escape, outside pointer input and keyboard focus leaving the chart dismiss the labels. Preserve keyboard sample navigation and an accessible chart description.
 
 Hovering or keyboard-focusing a band should reveal:
 
@@ -547,12 +561,12 @@ Use a compact label/value list with a fixed right-aligned value column:
 |---|---:|
 | Private working set | 2.47 GiB |
 | Private commit | 3.49 GiB |
-| Change over 5m | −162.9 MiB |
+| Change over 5m | −6.7% |
 | Peak (last 30m) | 2.74 GiB |
 
 Bind these to the same selected entity, snapshot and calculations used by the table.
 
-Use signed values for change and the same missing/partial states as the table. Clarify in the peak help text that it refers to private working set.
+Use the same signed percentage, zero-baseline, confirmed-exit and missing/partial semantics as the table, retaining raw bytes in accessible help. Clarify in the peak help text that it refers to private working set.
 
 The chart’s metric dropdown should control the chart; it should not silently change the meaning of these summary labels.
 

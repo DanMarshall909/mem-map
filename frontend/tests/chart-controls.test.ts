@@ -34,14 +34,18 @@ test('commit overview uses commit scale and shares while the header remains phys
   window.happyDOM.abort();
 });
 
-test('overview fit uses visible totals and clips bands and inspected cursor to those bounds', () => {
+for (const metric of ['private_working_set', 'private_commit'] as const) test(`overview ${metric} fit spans zero to the visible peak and clips bands and cursor`, () => {
   const { window, view, dashboard, panel } = setup();
+  view.settings.overview_metric = metric;
   view.settings.overview_from_zero = false;
+  view.overview.samples[0].used = '21474836480';
+  view.overview.samples[0].layers = ['20401094656', '1073741824'];
   dashboard.update(view); panel.querySelector<HTMLButtonElement>('[aria-label="Expand overview"]')!.click();
   const drawing = panel.querySelector('.memory-chart > svg')!;
   const ticks = () => [...drawing.querySelectorAll('.chart-annotations text')].map(el => el.textContent ?? '').filter(s => /^\d+\.\d+$/.test(s)).map(Number);
   assert(ticks().length > 1);
-  assert(Math.min(...ticks()) > 0, 'Fit values raises the lower bound above zero');
+  assert.equal(Math.min(...ticks()), 0, 'The stacked overview always starts at zero');
+  assert.equal(Math.max(...ticks()), 24, 'Fit values ends at the highest visible total, not RAM capacity');
   const clip = drawing.querySelector('clipPath.chart-plot-clip rect'); assert(clip, 'Fitted areas must be clipped');
   const areas = drawing.querySelector('.chart-areas'); assert(areas?.getAttribute('clip-path'));
   panel.querySelector('.memory-chart')!.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));

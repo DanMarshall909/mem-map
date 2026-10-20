@@ -656,9 +656,9 @@ Use orange fill for selected segmented options.
 
 **From zero** sets the lower bound to zero and chooses a suitable upper bound above the visible maximum.
 
-**Fit values** uses the visible value range with modest padding. Keep both axis bounds visible so the narrower scale is obvious.
+**Fit values** on the overall memory chart starts at zero and ends at the highest visible total. On selected process history it uses the visible value range with modest padding. Keep both axis bounds visible so the scale is obvious.
 
-Both charts have independent metric and axis settings. Default physical working-set overview uses zero-to-capacity; commit uses zero-to-visible measured commit maximum. Fit values uses the visible total range plus padding, exposes both bounds and clips stack/cursor geometry. Never portray a fitted bound as physical capacity. Persist both metrics and axes without changing table counters.
+Both charts have independent metric and axis settings. Default physical working-set overview uses zero-to-capacity; commit uses zero-to-visible measured commit maximum. Overview Fit values uses zero-to-visible total maximum for both metrics, exposes both bounds and clips stack/cursor geometry. Never portray a fitted bound as physical capacity. Persist both metrics and axes without changing table counters.
 
 ### Inspector summary context
 

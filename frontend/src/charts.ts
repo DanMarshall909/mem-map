@@ -314,9 +314,7 @@ export class MemoryChart {
     if (this.kind === 'overview' && !view.settings.overview_from_zero) {
       const values = view.overview.samples.filter(p => p.used !== null).map(p => Number(p.used));
       if (values.length) {
-        min = Math.min(...values); max = Math.max(1, ...values);
-        const padding = Math.max(1048576, (max - min) * 0.1);
-        min = Math.max(0, min - padding); max += padding;
+        max = Math.max(1, ...values);
         if (!commit && Number(view.overview.capacity) > 0) max = Math.min(max, Number(view.overview.capacity));
       }
     }

@@ -7,7 +7,10 @@ import './styles.css';
 const mount = document.querySelector<HTMLElement>('#app');
 if (!mount) throw new Error('Application mount is missing');
 let client: ViewClient<View, Action>;
-const dashboard = new Dashboard(action => { void client.send(action); }, action => {
+const dashboard = new Dashboard(action => {
+  if (action.type === 'adjust_ui_zoom') void client.sendDerived(view => ({ type: 'set_ui_zoom', value: Math.max(50, Math.min(200, view.settings.ui_zoom + action.delta)) }));
+  else void client.send(action);
+}, action => {
   void client.native(action).then(notice => { if (notice) dashboard.showNotice(notice); });
 });
 client = new ViewClient<View, Action>({

@@ -141,10 +141,9 @@ test('details close stays in a separate header while long content scrolls', () =
 
 test('50 percent scale is selectable and is the shortcut and wheel lower bound', () => {
   const { window, calls, dashboard, view } = setup();
-  const zoom = dashboard.element.querySelector<HTMLSelectElement>('select[aria-label="View scale"]')!;
-  assert([...zoom.options].some(option => option.value === '50'));
-  zoom.value = '50'; zoom.dispatchEvent(new window.Event('change', { bubbles: true }));
-  assert.deepEqual(calls.at(-1), { type: 'set_ui_zoom', value: 50 });
+  view.settings.ui_zoom = 75; dashboard.update(view);
+  dashboard.element.querySelector<HTMLButtonElement>('button[aria-label="Zoom out"]')!.click();
+  assert.deepEqual(calls.at(-1), { type: 'adjust_ui_zoom', delta: -25 });
   for (const scale of [75, 50]) {
     view.settings.ui_zoom = scale; dashboard.update(view);
     dashboard.element.dispatchEvent(new window.KeyboardEvent('keydown', { key: '-', ctrlKey: true, bubbles: true }));

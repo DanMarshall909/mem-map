@@ -27,6 +27,8 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .header-summary > span { color: var(--secondary); }
 .live-status { width: 100%; color: var(--secondary); font-size: .9rem; overflow-wrap: anywhere; }
 .header-actions, .toolbar-options, .history-navigation { display: flex; gap: .6rem 1rem; flex-wrap: wrap; align-items: center; }
+.header-zoom { display: flex; align-items: center; gap: .15rem; }
+.zoom-value { min-width: 4ch; text-align: center; font-variant-numeric: tabular-nums; }
 .workspace { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, min(var(--split), calc(100% - 20rem - .6rem))) .6rem minmax(20rem, 1fr); }
 .process-panel { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: .4rem; }
 .panel { background: var(--panel); border: 0; }
@@ -51,9 +53,6 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .filter-field { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
 .filter-field input { flex: 1; width: 5rem; }
 .check { display: flex; align-items: center; gap: .45rem; }
-.field { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; min-width: 0; }
-.field > span { color: var(--secondary); }
-.field select { max-width: 100%; }
 .splitter { cursor: col-resize; position: relative; touch-action: none; }
 .splitter::after { content: ''; position: absolute; width: 1px; inset-block: 0; left: 50%; background: var(--divider); }
 .splitter:hover::after, .splitter:focus-visible::after { background: var(--orange); width: 2px; }
@@ -61,7 +60,6 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .overview-panel { min-height: 0; min-width: 0; padding: .7rem; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; margin-bottom: .4rem; }
 .overview-panel > .panel-heading { flex-direction: column; align-items: flex-start; }
-.panel-heading .field { font-size: .9rem; }
 .memory-chart { min-width: 0; position: relative; }
 .chart-label-toggle { position: absolute; inset-block-start: .15rem; inset-inline-end: .2rem; z-index: 12; min-height: 1.7rem; padding: .1rem .4rem; border: 0; background: #202327cc; }
 .chart-compact .chart-labels { position: fixed; inset: auto; margin: 0; width: min(24rem, calc(100vw - 1rem)); max-height: min(28rem, 65dvh); overflow: auto; z-index: 11; border: 0; background: #202327f5; padding: .65rem; box-shadow: 0 .4rem 1rem #0004; }
@@ -122,7 +120,6 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .footer-bottom { display: flex; justify-content: space-between; align-items: center; gap: .5rem 1rem; flex-wrap: wrap; }
 .footer-bottom > * { min-width: 0; max-width: 100%; }
 .notice { color: var(--orange); overflow-wrap: anywhere; flex: 1; }
-.footer-bottom select { min-height: 1.8rem; }
 .diagnostics { background: var(--panel); color: #eceff1; border: 1px solid var(--boundary); border-radius: 4px; max-width: min(90vw, 60rem); max-height: 85dvh; overflow: hidden; }
 .diagnostics[open] { display: grid; grid-template-rows: auto minmax(0,1fr); }
 .diagnostic-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }

@@ -116,6 +116,16 @@ try {
   await page.goto(browserUrl);
   await page.locator('.dashboard[data-ready="true"]').waitFor();
   const view = () => invoke('get_view');
+  const setScale = async target => {
+    for (let step = 0; step < 7; step++) {
+      const current = (await view()).settings.ui_zoom;
+      if (current === target) return;
+      const next = current + (target > current ? 25 : -25);
+      await page.getByRole('button', {name: target > current ? 'Zoom in' : 'Zoom out', exact:true}).click();
+      await until(async () => (await view()).settings.ui_zoom === next && await page.locator('.zoom-value').textContent() === `${next}%`, 'header zoom step');
+    }
+    assert.equal((await view()).settings.ui_zoom, target);
+  };
   await until(async () => (await view()).table.rows.length > 0, 'real Rust first frame');
   const first = await view();
   assert(first.overview.capacity !== '0'); assert(first.selected); assert.equal(typeof first.selected.private.value, 'string');
@@ -248,14 +258,22 @@ try {
   assert((await view()).settings.column_widths.every(Number.isInteger));
   check('125% pointer column resize preserves integral backend preferences');
   await page.screenshot({ path: path.join(output, 'zoomed.png') });
-  await page.getByRole('combobox', { name: /View scale/ }).selectOption('200');
+  await setScale(200);
   await until(async () => (await view()).settings.ui_zoom === 200, '200 percent application zoom');
+  assert(await page.getByRole('button', {name:'Zoom in',exact:true}).isDisabled());
   await page.waitForFunction(() => parseFloat(getComputedStyle(document.documentElement).fontSize) === 28);
   await page.screenshot({ path: path.join(output, 'zoom200.png') });
   await usableLayout('200% application zoom');
   check('Executable path keeps its visible beginning and filename across window sizes and zoom');
   await page.keyboard.press('Control+0');
   await until(async () => (await view()).settings.ui_zoom === 100, 'Global zoom reset after path blur');
+  await page.getByRole('button', {name:'Zoom out',exact:true}).press('Enter');
+  await until(async () => (await view()).settings.ui_zoom === 75, 'native zoom out button');
+  await page.getByRole('button', {name:'Zoom in',exact:true}).press('Space');
+  await until(async () => (await view()).settings.ui_zoom === 100, 'native zoom in button');
+  assert.equal(await page.locator('.app-header .header-zoom').count(), 1);
+  assert.equal(await page.locator('.app-footer select').count(), 0);
+  check('Top-bar magnifying-glass zoom buttons retain native activation, scale readings and limits');
   check('Application zoom shortcuts');
   const accessibleRow = grid.locator('[data-row-id][aria-expanded]').first();
   await accessibleRow.click();
@@ -275,7 +293,7 @@ try {
   assert.equal((await view()).settings.ui_zoom, beforeInvalid);
   check('Invalid test-boundary commands fail without changing the controller');
   await page.setViewportSize({ width: 585, height: 774 });
-  await page.getByRole('combobox', { name: /View scale/ }).selectOption('75');
+  await setScale(75);
   await until(async () => (await view()).settings.ui_zoom === 75, 'compact browser text scale');
   const compactChart = page.locator('.overview-panel .memory-chart');
   await compactChart.locator('.chart-label-toggle').waitFor({ state: 'visible' });
@@ -348,7 +366,7 @@ try {
   const mainLayouts = [];
   for (const [width, height, scale] of [[585, 774, 75], [585, 774, 100], [585, 774, 125], [1440, 900, 100]]) {
     await page.setViewportSize({ width, height });
-    await page.getByRole('combobox', { name: /View scale/ }).selectOption(String(scale));
+    await setScale(scale);
     await until(async () => (await view()).settings.ui_zoom === scale && await page.evaluate(target => parseFloat(getComputedStyle(document.documentElement).fontSize) === 14 * target / 100, scale), 'main overview scale');
     await until(async () => page.locator('.dashboard').evaluate(root => {
       const workspace = root.querySelector('.workspace').getBoundingClientRect(), panel = root.querySelector('.overview-panel').getBoundingClientRect();
@@ -433,7 +451,7 @@ try {
   await until(async () => (await view()).paused, 'pause in main overview');
   await page.screenshot({ path: path.join(output, 'main-overview-wide.png') });
   await page.setViewportSize({ width: 585, height: 774 });
-  await page.getByRole('combobox', { name: /View scale/ }).selectOption('75');
+  await setScale(75);
   await until(async () => (await view()).settings.ui_zoom === 75, 'main overview reference scale');
   await page.screenshot({ path: path.join(output, 'main-overview-compact.png') });
   check('Overall memory can fill the main workspace across window and text sizes while range, live updates and pause work', mainLayouts);
@@ -456,15 +474,16 @@ try {
   await overviewChoice.getByRole('radio', { name: '5m', exact: true }).focus();
   await page.keyboard.press('ArrowRight');
   await until(async () => (await view()).settings.overview_range === 900, 'Overview toggle arrow keyboard navigation');
-  await page.getByRole('combobox', { name: /View scale/ }).selectOption('50');
+  await setScale(50);
   await until(async () => (await view()).settings.ui_zoom === 50, 'Half scale accepted by controller');
+  assert(await page.getByRole('button', {name:'Zoom out',exact:true}).isDisabled());
   assert.match(await readFile(path.join(output, 'preferences.ini'), 'utf8'), /^ui_zoom=50$/m);
   assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize), '7px');
   assert.equal(await page.locator('.app-header h1, .footer-counts, .chart-navigator').count(), 0);
   const copyColor = await page.getByRole('button', { name: 'Copy snapshot to clipboard', exact: true }).evaluate(button => getComputedStyle(button).color);
   await expandOverview.click();
   assert.equal(copyColor, await backToProcesses.evaluate(button => getComputedStyle(button).color));
-  await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');
+  await setScale(100);
   await until(async () => (await view()).settings.ui_zoom === 100, 'Dialog reference scale');
   await page.setViewportSize({ width: 420, height: 300 });
   const detailsButton = page.getByRole('button', { name: 'Details', exact: true });
@@ -563,7 +582,7 @@ try {
   check('Inspector summary follows selected metric and historical chart sample, then restores latest');
 
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');
+  await setScale(100);
   await until(async () => (await view()).settings.ui_zoom === 100, 'Band navigation reference scale');
   const beforeBand = await view();
   await page.getByRole('group', { name: 'Group by', exact: true }).getByRole('radio', { name: 'Path', exact: true }).check();
@@ -609,7 +628,7 @@ try {
   check('Real band double-click, expanded legend and keyboard navigate to a visible program without changing chart settings');
 
 
-  await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');
+  await setScale(100);
   await until(async () => (await view()).settings.ui_zoom === 100, 'restore test scale');
   const preferences = await readFile(path.join(output, 'preferences.ini'), 'utf8');
   assert.match(preferences, /^ui_zoom=100$/m);

@@ -81,3 +81,25 @@ test('a poll finishing during an action cannot reset the pending control selecti
   actionDone({ revision: 2, metric: 'commit' }); await action;
   assert.deepEqual(seen, ['commit']);
 });
+
+test('derived actions recover from failed reads or dispatches using fresh authoritative state', async () => {
+  for (const failure of ['read', 'dispatch']) {
+    let current = { revision: 1, scale: 100 }, failed = false;
+    const errors: string[] = [], seen: number[] = [], sent: number[] = [];
+    const client = new ViewClient({
+      getView: async () => {
+        if (failure === 'read' && !failed) { failed = true; current = { revision: 2, scale: 125 }; throw Error('read rejected'); }
+        return { ...current };
+      },
+      dispatch: async (scale: number) => {
+        sent.push(scale);
+        if (failure === 'dispatch' && !failed) { failed = true; current = { revision: 2, scale: 125 }; throw Error('dispatch rejected'); }
+        current = { revision: current.revision + 1, scale }; return { ...current };
+      }, copyPaths: async () => '', copySnapshot: async () => '',
+    }, view => seen.push(view.scale), error => errors.push(error));
+    await Promise.all([client.sendDerived(view => view.scale + 25), client.sendDerived(view => view.scale + 25)]);
+    assert.deepEqual(sent, failure === 'read' ? [150] : [125, 150]);
+    assert.deepEqual(seen, [150]); assert.equal(errors.length, 1);
+    assert.match(errors[0], /rejected/); assert.equal(current.scale, 150);
+  }
+});

@@ -1,17 +1,18 @@
 import type { Action, Grouping, Inspection, Metric, View } from './contract.ts';
-import { checkbox, el, iconButton, radios, select, setIcon, text } from './dom.ts';
+import { checkbox, el, iconButton, radios, setIcon, text } from './dom.ts';
 import { bytes, changePercent, dateTime, duration, elapsed, partial, reading, readingHelp } from './format.ts';
 import { ProcessTreeGrid } from './treegrid.ts';
 import { MemoryChart } from './charts.ts';
 
 const metricChoices: [Metric, string][] = [['private_working_set', 'Private working set'], ['private_commit', 'Private commit']];
 const rangeChoices: [string, string][] = [['300', '5m'], ['900', '15m'], ['1800', '30m'], ['all', 'All']];
+export type DashboardAction = Action | { type: 'adjust_ui_zoom'; delta: number };
 export class Dashboard {
   readonly element = el('main', 'dashboard');
   readonly table: ProcessTreeGrid;
   readonly inspector = el('section', 'panel inspector-scroll');
   private view: View | null = null;
-  private send: (action: Action) => void;
+  private send: (action: DashboardAction) => void;
   private overview: MemoryChart;
   private overviewTitle = el('h2', '', 'Overall memory usage');
   private overviewExpanded = false;
@@ -58,7 +59,9 @@ export class Dashboard {
   private tableStatus = el('p', 'table-status sr-only');
   private barsHelp = el('p', 'bars-help sr-only');
   private notice = el('p', 'notice');
-  private zoom: ReturnType<typeof select>;
+  private zoomOut: HTMLButtonElement;
+  private zoomIn: HTMLButtonElement;
+  private zoomValue = el('output', 'zoom-value', '100%');
   private diagnostics = el('dialog', 'diagnostics');
   private diagnosticText = el('div', 'diagnostic-content');
   private diagnosticOpen = false;
@@ -66,7 +69,7 @@ export class Dashboard {
   private editingFilter = false;
   private splitter = el('div', 'splitter');
   private lastNotice = '';
-  constructor(send: (action: Action) => void, native: (action: 'copy' | 'snapshot') => void) {
+  constructor(send: (action: DashboardAction) => void, native: (action: 'copy' | 'snapshot') => void) {
     this.send = send; this.table = new ProcessTreeGrid(send);
     this.overview = new MemoryChart('overview', action => { if (action.type === 'open_overview_process') this.setOverviewExpanded(false); send(action); }); this.history = new MemoryChart('history', send, sample => this.updateInspection(sample));
     const summary = el('div', 'header-summary');
@@ -76,7 +79,12 @@ export class Dashboard {
     const snapshotCopy = iconButton('Copy snapshot to clipboard', 'copy', () => native('snapshot'), 'accent');
     snapshotCopy.title = 'Copy the displayed, filtered snapshot as CSV, including records outside the viewport; expansion does not change copied membership';
     const details = iconButton('Details', 'info', () => this.openDiagnostics(), 'accent'); details.setAttribute('aria-haspopup', 'dialog');
-    const actions = el('div', 'header-actions'); actions.append(this.pause, details, snapshotCopy); this.header.append(summary, actions);
+    this.zoomOut = iconButton('Zoom out', 'zoomOut', () => this.adjustZoom(-25), 'accent');
+    this.zoomIn = iconButton('Zoom in', 'zoomIn', () => this.adjustZoom(25), 'accent');
+    this.zoomValue.setAttribute('aria-label', 'View scale');
+    const zoomControls = el('div', 'header-zoom'); zoomControls.setAttribute('role', 'group'); zoomControls.setAttribute('aria-label', 'View scale controls');
+    zoomControls.append(this.zoomOut, this.zoomValue, this.zoomIn);
+    const actions = el('div', 'header-actions'); actions.append(zoomControls, this.pause, details, snapshotCopy); this.header.append(summary, actions);
     const workspace = el('div', 'workspace'); const left = this.processPanel; left.setAttribute('aria-label', 'Process table');
     const toolbar = el('div', 'toolbar panel');
     this.group = radios('Group by', [['name', 'Name'], ['path', 'Path'], ['tree', 'Process tree'], ['process', 'Individual processes'], ['family', 'Family']], value => send({ type: 'set_grouping', value }), { name: 'tag', path: 'folder', tree: 'tree', process: 'process', family: 'family' });
@@ -130,8 +138,7 @@ export class Dashboard {
     right.append(overviewPanel, this.inspector); this.splitter.tabIndex = 0; this.splitter.setAttribute('role', 'separator'); this.splitter.setAttribute('aria-label', 'Resize process and memory panes'); this.splitter.setAttribute('aria-orientation', 'vertical');
     this.splitter.setAttribute('aria-valuemin', '40'); this.splitter.setAttribute('aria-valuemax', '80');
     workspace.append(left, this.splitter, right);
-    this.zoom = select('View scale:', [50, 75, 100, 125, 150, 175, 200].map(n => [String(n), `${n}%`]), value => send({ type: 'set_ui_zoom', value: Number(value) }));
-    const footerBottom = el('div', 'footer-bottom'); footerBottom.append(this.notice, this.zoom.label);
+    const footerBottom = el('div', 'footer-bottom'); footerBottom.append(this.notice);
     this.notice.setAttribute('role', 'status'); this.notice.setAttribute('aria-live', 'polite');
     this.footer.append(footerBottom);
     const diagnosticHeading = el('h2', '', 'Collection details'); diagnosticHeading.id = 'diagnostic-title'; this.diagnostics.setAttribute('aria-labelledby', diagnosticHeading.id);
@@ -169,7 +176,7 @@ export class Dashboard {
     this.overviewRange.set(view.settings.overview_range?.toString() ?? 'all'); this.metric.set(view.settings.metric); this.overviewMetric.set(view.settings.overview_metric); this.overviewAxis.set(view.settings.overview_from_zero ? 'zero' : 'fit');
     this.ranges.set(view.settings.history_range?.toString() ?? 'all'); this.axis.set(view.settings.from_zero ? 'zero' : 'fit');
     this.follow.input.checked = view.history_viewport.follow; this.reset.disabled = !view.history_viewport.reset_enabled;
-    this.zoom.input.value = String(view.settings.ui_zoom);
+    text(this.zoomValue, `${view.settings.ui_zoom}%`); this.zoomOut.disabled = view.settings.ui_zoom <= 50; this.zoomIn.disabled = view.settings.ui_zoom >= 200;
     if (!this.overviewExpanded) this.table.update(view, explicitReveal);
     text(this.tableStatus, view.table.order_held ? 'Order held while inspecting' : view.table.selection_hidden ? 'Selection hidden by current filter or grouping; inspector retained' : '');
     text(this.barsHelp, `Row fill: relative to largest ${view.settings.grouping === 'process' || view.settings.grouping === 'tree' ? 'process' : 'group'} · Change: red ↑ · green ↓ · white unchanged`);
@@ -246,6 +253,9 @@ export class Dashboard {
       const up = () => { this.splitter.removeEventListener('pointermove', move); this.splitter.releasePointerCapture(e.pointerId); this.send({ type: 'set_splitter', value: split }); };
       this.splitter.addEventListener('pointermove', move); this.splitter.addEventListener('pointerup', up, { once: true });
     });
+  }
+  private adjustZoom(delta: number): void {
+    if (this.view) this.send({ type: 'adjust_ui_zoom', delta });
   }
   private installShortcuts(): void {
     document.addEventListener('keydown', e => {

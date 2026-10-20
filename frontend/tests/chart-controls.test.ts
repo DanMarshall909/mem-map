@@ -15,6 +15,23 @@ function setup() {
   return { window, view, calls, dashboard, panel };
 }
 
+test('header zoom buttons step the saved view scale and stop at its limits', () => {
+  const { window, view, dashboard, calls } = setup();
+  const minus = dashboard.element.querySelector<HTMLButtonElement>('.app-header button[aria-label="Zoom out"]');
+  const plus = dashboard.element.querySelector<HTMLButtonElement>('.app-header button[aria-label="Zoom in"]');
+  assert(minus); assert(plus);
+  minus.click(); assert.deepEqual(calls.at(-1), { type: 'adjust_ui_zoom', delta: -25 });
+  plus.click(); assert.deepEqual(calls.at(-1), { type: 'adjust_ui_zoom', delta: 25 });
+  for (const scale of [50, 75, 100, 125, 150, 175, 200]) {
+    view.settings.ui_zoom = scale; dashboard.update(view);
+    assert.equal(minus.disabled, scale === 50); assert.equal(plus.disabled, scale === 200);
+    assert.equal(dashboard.element.querySelector('.zoom-value')!.textContent, `${scale}%`);
+  }
+  const count = calls.length; plus.click(); assert.equal(calls.length, count, 'Maximum cannot increase');
+  view.settings.ui_zoom = 50; dashboard.update(view); minus.click(); assert.equal(calls.length, count, 'Minimum cannot decrease');
+  window.happyDOM.abort();
+});
+
 test('change interval toggles send their duration and follow toggle stays synchronized with navigation', () => {
   const { window, view, dashboard, calls } = setup();
   const interval = [...dashboard.element.querySelectorAll('fieldset')].find(el => el.querySelector('legend')?.textContent === 'Change over');

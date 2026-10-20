@@ -723,7 +723,7 @@ Place the orange **Details** info icon beside **Pause display** in the header. I
 
 Keep Close in a fixed modal heading and scroll only its content, so the close action stays reachable in small windows and with long diagnostic lists. Close and Escape dismiss the modal, restore opener focus and preserve the current workspace.
 
-Keep only action notices and View scale in the main footer. Omit routine recording and table footnotes from the visible layout; retain paused/collector-error feedback and accessible table context.
+Keep only action notices in the main footer. Put View scale in the top bar as magnifying-glass minus/plus buttons with a current percentage reading. Omit routine recording and table footnotes from the visible layout; retain paused/collector-error feedback and accessible table context.
 
 ---
 
@@ -759,7 +759,7 @@ Implement:
 
 Expose names, values, sort direction, selected state, hierarchy and expanded state through the platform accessibility APIs. Make chart values available without requiring a mouse.
 
-Allow 50%, 75%, 100%, 125%, 150%, 175% and 200% application scale; persist 50% and use it as the lower keyboard/wheel bound. Move its visible controls into a compact **View** menu or status control if necessary, and preserve existing shortcuts. **Ctrl+0** can restore normal application scale.
+Allow 50%, 75%, 100%, 125%, 150%, 175% and 200% application scale; persist 50% and use it as the lower keyboard/wheel bound. Top-bar magnifying-glass minus/plus buttons change scale by 25 percentage points, disable at 50%/200%, and expose names and tooltips. Resolve each button's relative step in command order against the latest backend view so rapid clicks accumulate correctly, including after a failed command. Show the current percentage and preserve existing shortcuts. **Ctrl+0** can restore normal application scale.
 
 Keep application scaling and chart navigation distinct. Verify the layout with increased text scaling; allow wrapping and scrolling rather than shrinking text.
 

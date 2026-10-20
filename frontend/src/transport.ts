@@ -44,6 +44,14 @@ export class ViewClient<V extends { revision: number }, A> {
   async send(action: A): Promise<void> {
     await this.enqueue(async () => { this.apply(await this.bridge.dispatch(action), action); });
   }
+  async sendDerived(makeAction: (view: V) => A): Promise<void> {
+    await this.enqueue(async () => {
+      // Resolve relative UI intent after prior commands, using authoritative
+      // state even when an earlier command failed or another view changed it.
+      const action = makeAction(await this.bridge.getView());
+      this.apply(await this.bridge.dispatch(action), action);
+    });
+  }
   async native(action: 'copy' | 'snapshot'): Promise<string | undefined> {
     return this.enqueue(async () => action === 'copy' ? this.bridge.copyPaths() : this.bridge.copySnapshot());
   }

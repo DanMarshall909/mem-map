@@ -4,6 +4,8 @@ import { Window } from 'happy-dom';
 import { fixture } from './fixture.ts';
 import { ProcessTreeGrid } from '../src/treegrid.ts';
 import { Dashboard } from '../src/dashboard.ts';
+import { ViewClient } from '../src/transport.ts';
+import type { Action, View } from '../src/contract.ts';
 import { MemoryChart } from '../src/charts.ts';
 import { bytes, change } from '../src/format.ts';
 function dom() { const window = new Window(); Object.assign(globalThis, { document: window.document, window, HTMLElement: window.HTMLElement, Element: window.Element }); return window; }
@@ -103,6 +105,36 @@ test('treegrid keys select stable IDs and collapse or enter children', () => {
   row.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
   assert.deepEqual(calls, [{ type: 'set_table_interaction_held', value: true }, { type: 'select_row', id: 'process:123:18000000000000000' }, { type: 'toggle_expanded', id: 'name:worker' }]);
   window.happyDOM.abort();
+});
+
+test('zoom button bursts apply each relative intent after the preceding bridge reply', async () => {
+  for (const [second, expected] of [['Zoom in', 150], ['Zoom out', 100]] as const) {
+    const window = dom(); let current = fixture(), release!: () => void, first = true;
+    const pending: Promise<void>[] = [];
+    let client!: ViewClient<View, Action>;
+    const dashboard = new Dashboard(action => {
+      pending.push(action.type === 'adjust_ui_zoom'
+        ? client.sendDerived(view => ({ type: 'set_ui_zoom', value: Math.max(50, Math.min(200, view.settings.ui_zoom + action.delta)) }))
+        : client.send(action));
+    }, () => {});
+    document.body.append(dashboard.element);
+    client = new ViewClient<View, Action>({
+      getView: async () => structuredClone(current),
+      dispatch: async action => {
+        if (first) { first = false; await new Promise<void>(resolve => { release = resolve; }); }
+        assert.equal(action.type, 'set_ui_zoom');
+        if (action.type === 'set_ui_zoom') current.settings.ui_zoom = action.value;
+        current.revision++; return structuredClone(current);
+      }, copyPaths: async () => '', copySnapshot: async () => '',
+    }, view => dashboard.update(view), error => assert.fail(error));
+    await client.refresh();
+    dashboard.element.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click();
+    dashboard.element.querySelector<HTMLButtonElement>(`[aria-label="${second}"]`)!.click();
+    await new Promise(resolve => setImmediate(resolve)); release(); await Promise.all(pending);
+    assert.equal(current.settings.ui_zoom, expected, `Zoom in then ${second} preserves both activations`);
+    assert.equal(dashboard.element.querySelector('.zoom-value')!.textContent, `${expected}%`);
+    window.happyDOM.abort();
+  }
 });
 
 test('repeated live frames retain inspector scroll, focused control and selected history choices', () => {

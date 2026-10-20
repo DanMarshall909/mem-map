@@ -25,6 +25,8 @@ const icons = {
   exited: 'M10 3H4v18h6M14 7l5 5-5 5M8 12h11',
   compact: 'M4 5h16M4 10h16M4 15h16M4 20h16',
   follow: 'M3 12h14m-5-5 5 5-5 5M21 4v16',
+  zoomOut: 'M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0ZM15 15l6 6M7 10h6',
+  zoomIn: 'M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0ZM15 15l6 6M7 10h6M10 7v6',
 } as const;
 function createIcon(icon: keyof typeof icons): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -42,12 +44,6 @@ export function checkbox(label: string, action: (value: boolean) => void, icon: 
   input.addEventListener('change', () => action(input.checked));
   node.title = label; input.setAttribute('aria-label', label); const display = el('span'); display.append(createIcon(icon)); node.append(input, display);
   return { label: node, input };
-}
-export function select(label: string, choices: [string, string][], action: (value: string) => void): { label: HTMLLabelElement; input: HTMLSelectElement } {
-  const node = el('label', 'field'); const caption = el('span', '', label); const input = el('select');
-  input.setAttribute('aria-label', label.replace(/:$/, ''));
-  for (const [value, name] of choices) { const option = el('option', '', name); option.value = value; input.append(option); }
-  input.addEventListener('change', () => action(input.value)); node.append(caption, input); return { label: node, input };
 }
 let serial = 0;
 export function radios<T extends string>(label: string, choices: [T, string][], action: (value: T) => void, iconNames?: Partial<Record<T, keyof typeof icons>>): { group: HTMLFieldSetElement; set: (value: T) => void } {

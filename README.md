@@ -33,6 +33,16 @@ readings come from one completed collection snapshot.
   available width and height. **Back to processes** or Escape restores the table
   and inspector. Ctrl+F returns directly to the process filter. The view choice
   lasts for the current session; collection, pause and range controls keep working.
+- Expanded graphs add finer grids and a compact legend over the top-left of the
+  plot. Each band has one row with aligned memory, physical-RAM share and change
+  percentage columns; names are capped at 20 characters. Program names are used
+  when supplied, with executable names as fallback. Change uses the selected
+  interval and a valid recent baseline from the displayed history.
+  The sidebar has no legend. Both time axes show age ending at **0s** on the right.
+  Hover or use arrow keys to inspect samples; moving the pointer away restores
+  the latest displayed sample even when keyboard focus remains in the chart.
+  Actions use icons with accessible names and tooltips. There is no repeated
+  capacity/available summary or visible Chart data panel under the plot.
 - **Pause display** freezes displayed readings, ordering and chart endpoints while
   recording continues. Selection, filtering and full-path copying remain usable.
   Resume advances to the latest completed snapshot. A history chart with

@@ -11,7 +11,7 @@ function setup() {
   const style = document.createElement('style'); style.textContent = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8'); document.head.append(style);
   const calls: unknown[] = [], dashboard = new Dashboard(action => calls.push(action), () => {});
   document.body.append(dashboard.element); const view = fixture(); dashboard.update(view);
-  const control = (label: string) => [...dashboard.element.querySelectorAll('button')].find(button => button.textContent === label);
+  const control = (label: string) => [...dashboard.element.querySelectorAll('button')].find(button => (button.getAttribute('aria-label') ?? button.textContent) === label);
   return { window, calls, dashboard, view, control };
 }
 
@@ -50,7 +50,7 @@ test('main overview uses the available panel height and preserves its range cont
   let panelHeight = 600;
   Object.defineProperty(panel, 'clientHeight', { get: () => panelHeight });
   Object.defineProperty(panel.querySelector('.memory-chart')!, 'clientWidth', { value: 860 });
-  const drawing = panel.querySelector('svg')!;
+  const drawing = panel.querySelector('.memory-chart > svg')!;
   control('Expand overview')?.click();
   assert(parseFloat(drawing.style.height) > 450, 'The main plot must use available height rather than the sidebar cap');
   const range = panel.querySelector('select')!; range.value = '300'; range.dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -85,5 +85,20 @@ test('keyboard commands return to visible process controls and Escape respects c
   const dialog = dashboard.element.querySelector('dialog')!;
   key(dialog, 'Escape'); assert.equal(dashboard.inspector.hidden, true, 'A modal owns its Escape');
   control('Close details')!.click(); key(expand, 'Escape'); assert.equal(dashboard.inspector.hidden, false);
+  window.happyDOM.abort();
+});
+
+test('icon actions keep accessible names, tooltips and state changes', () => {
+  const { window, calls, dashboard, view, control } = setup();
+  for (const name of ['Pause display', 'Export CSV', 'Expand overview', 'Show processes', 'Copy path', 'Reset view', 'Details', 'Close details']) {
+    const action = control(name); assert(action, name);
+    assert(action.title.length > 0, name + ' has a tooltip');
+    assert.equal(action.querySelector('svg')!.getAttribute('aria-hidden'), 'true');
+    assert.equal(action.textContent, '', name + ' uses an icon');
+  }
+  control('Pause display')!.click(); assert.deepEqual(calls.at(-1), { type: 'set_paused', value: true });
+  view.paused = true; dashboard.update(view);
+  assert(control('Resume display')); assert.equal(control('Resume display')!.title, 'Resume display');
+  control('Expand overview')!.click(); assert(control('Back to processes'));
   window.happyDOM.abort();
 });

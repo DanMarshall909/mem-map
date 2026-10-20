@@ -61,17 +61,14 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .chart-compact .chart-annotations text { paint-order: stroke; stroke: #202327; stroke-width: 3px; stroke-linejoin: round; }
 .memory-chart svg { display: block; width: 100%; min-height: 10rem; overflow: visible; touch-action: pan-y; }
 .overview-panel svg { min-height: 0; }
-.chart-readout { display: flex; justify-content: space-between; gap: .4rem 1rem; flex-wrap: wrap; margin-block: .2rem .5rem; font-variant-numeric: tabular-nums; color: var(--secondary); }
-.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%),1fr)); gap: .3rem; }
-.legend-entry { text-align: left; font-size: .9rem; background: transparent; padding-inline-start: 1rem; position: relative; white-space: normal; overflow-wrap: anywhere; }
-.legend-entry::before { content: ''; position: absolute; left: .35rem; top: .45rem; bottom: .45rem; width: .3rem; background: var(--band-color); }
-.chart-description { font-size: .85rem; color: var(--secondary); margin-block: .5rem; }
-.chart-inspection { font-size: .85rem; }
-.chart-inspection summary { cursor: pointer; color: var(--secondary); }
-.chart-inspection[open] summary { margin-bottom: .4rem; }
-.chart-navigator { display: flex; gap: .5rem; flex-wrap: wrap; }
-.chart-navigator button { font-size: .85rem; min-height: 1.9rem; }
-.chart-data { display: block; margin-top: .3rem; font-size: .85rem; padding: .4rem; background: var(--input); color: var(--secondary); overflow-wrap: anywhere; }
+ .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.icon-button { display: inline-flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; padding: .5rem; flex: none; }
+.icon-button svg, .memory-chart .icon-button svg { width: 1.3rem; height: 1.3rem; min-height: 0; }
+.chart-description { font-size: .85rem; color: var(--secondary); margin-block: .3rem; }
+.chart-labels:not([popover]) { position: absolute; top: 0; right: 0; display: flex; justify-content: space-between; gap: .5rem; align-items: center; }
+.chart-navigator { display: flex; gap: .3rem; }
+.chart-navigator button { min-height: 1.7rem; height: 1.7rem; width: 1.7rem; padding: .15rem; }
+.band-label text { font-variant-numeric: tabular-nums; }
 .inspector-scroll { min-height: 11rem; min-width: 0; overflow: auto; scrollbar-gutter: stable; padding: .8rem; overscroll-behavior: contain; }
 .inspector-heading { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: .4rem; align-items: start; margin-bottom: .6rem; }
 .inspector-heading h2 { grid-column: 1 / -1; }

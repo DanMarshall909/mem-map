@@ -26,7 +26,7 @@ export interface OverviewSample {
 }
 export interface Overview {
   start: number; end: number; recorded: number; capacity: Decimal;
-  layers: { name: string; id: string | null }[]; samples: OverviewSample[];
+  layers: { name: string; program_name?: string | null; id: string | null }[]; samples: OverviewSample[];
 }
 export interface HistorySeries { start: number; end: number; recorded: number; current: Reading; points: { at: number; captured_unix_ms: Decimal | null; reading: Reading }[] }
 export interface Diagnostics {

@@ -103,10 +103,9 @@ test('compact charts devote width to the plot and reveal stable labels by hover,
   assert.equal(drawing.getAttribute('viewBox'), viewBox, 'Hover must not move the pointer sampling coordinates');
   chart.element.dispatchEvent(new window.PointerEvent('pointerleave', { pointerType: 'mouse' })); assert.equal(labels.hidden, true);
   chart.element.focus(); assert.equal(labels.hidden, false, 'Keyboard focus also exposes the legend');
-  const legend = labels.querySelector<HTMLButtonElement>('.legend-entry')!; legend.focus();
-  const data = labels.querySelector<HTMLElement>('.chart-data')!;
+  const data = chart.element.querySelector<HTMLElement>('.chart-data')!;
   data.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
-  assert.match(data.textContent!, /5:00 elapsed/, 'Keyboard sample navigation remains available in the revealed labels');
+  assert.match(data.textContent!, /5m ago/, 'Keyboard sample navigation remains available in the revealed labels');
   chart.element.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.equal(labels.hidden, true); assert.equal(document.activeElement === chart.element, true, 'Escape keeps a useful keyboard focus target');
   const outside = document.createElement('button'); document.body.append(outside); outside.focus(); await Promise.resolve();

@@ -1,5 +1,5 @@
 import type { Action, Grouping, Metric, View } from './contract.ts';
-import { button, checkbox, el, radios, select, text } from './dom.ts';
+import { checkbox, el, iconButton, radios, select, setIcon, text } from './dom.ts';
 import { bytes, changePercent, dateTime, duration, elapsed, partial, reading, readingHelp } from './format.ts';
 import { ProcessTreeGrid } from './treegrid.ts';
 import { MemoryChart } from './charts.ts';
@@ -69,8 +69,8 @@ export class Dashboard {
     const title = el('h1', '', 'Mem Map'); const summary = el('div', 'header-summary');
     this.progress.max = 100; this.progress.setAttribute('aria-label', 'System physical memory used');
     summary.append(this.system, this.progress, this.available, this.live);
-    this.pause = button('Pause display', () => { if (this.view) send({ type: 'set_paused', value: !this.view.paused }); }, 'accent');
-    const exportButton = button('Export CSV', () => native('export'), 'primary');
+    this.pause = iconButton('Pause display', 'pause', () => { if (this.view) send({ type: 'set_paused', value: !this.view.paused }); }, 'accent');
+    const exportButton = iconButton('Export CSV', 'export', () => native('export'), 'primary');
     exportButton.title = 'Export the displayed, filtered snapshot, including records outside the viewport; expansion does not change export membership';
     const actions = el('div', 'header-actions'); actions.append(this.pause, exportButton); this.header.append(title, summary, actions);
     const workspace = el('div', 'workspace'); const left = this.processPanel; left.setAttribute('aria-label', 'Process table');
@@ -78,7 +78,7 @@ export class Dashboard {
     this.group = radios('Group by', [['name', 'Name'], ['path', 'Path'], ['tree', 'Process tree'], ['process', 'Individual processes'], ['family', 'Family']], value => send({ type: 'set_grouping', value }));
     this.group.group.title = 'Family preserves the original launched-family grouping; Process tree shows actual ancestry';
     const filterLabel = el('div', 'filter-field'); this.filter.type = 'search'; this.filter.placeholder = 'Name, path or PID'; this.filter.id = 'process-filter';
-    const filterCaption = el('label', '', 'Filter:'); filterCaption.htmlFor = this.filter.id; this.clear = button('Clear filter', () => this.clearFilter(), 'quiet');
+    const filterCaption = el('label', '', 'Filter:'); filterCaption.htmlFor = this.filter.id; this.clear = iconButton('Clear filter', 'close', () => this.clearFilter(), 'quiet');
     this.filter.addEventListener('input', () => {
       this.editingFilter = true; if (this.debounce) clearTimeout(this.debounce);
       this.clear.hidden = !this.filter.value;
@@ -95,24 +95,24 @@ export class Dashboard {
     overviewPanel.id = 'overall-memory-panel';
     const overviewHeading = el('div', 'panel-heading'); overviewHeading.append(el('h2', '', 'Overall memory usage'));
     this.overviewRange = select('View last:', rangeChoices.map(([v, name]) => [v, v === 'all' ? 'All retained history' : name]), value => send({ type: 'set_overview_range', seconds: value === 'all' ? null : Number(value) }));
-    this.overviewToggle = button('Expand overview', () => this.setOverviewExpanded(!this.overviewExpanded), 'accent');
+    this.overviewToggle = iconButton('Expand overview', 'expand', () => this.setOverviewExpanded(!this.overviewExpanded), 'accent');
     this.overviewToggle.title = 'Make overall memory the main view'; this.overviewToggle.setAttribute('aria-controls', overviewPanel.id);
     this.overviewRange.input.setAttribute('aria-label', 'Overall memory view last'); overviewHeading.append(this.overviewRange.label, this.overviewToggle); overviewPanel.append(overviewHeading, this.overview.element);
     this.inspector.setAttribute('aria-label', 'Selected process inspector'); this.inspector.tabIndex = -1;
     const inspectorHeading = el('div', 'inspector-heading'); this.title.id = 'selected-title';
     this.inspector.setAttribute('aria-labelledby', this.title.id);
-    this.show = button('Show processes', () => send({ type: 'show_selected_processes' })); inspectorHeading.append(this.title, this.counts, this.show);
+    this.show = iconButton('Show processes', 'list', () => send({ type: 'show_selected_processes' })); inspectorHeading.append(this.title, this.counts, this.show);
     const pathRow = el('div', 'path-row'); const pathLabel = el('label', 'path-label'); pathLabel.append(el('span', '', 'Executable path:'));
     this.path.readOnly = true; this.path.setAttribute('aria-label', 'Full executable path'); this.path.spellcheck = false;
     const pathDisplay = el('div', 'path-display'); this.pathPreview.setAttribute('aria-hidden', 'true'); this.pathPreview.append(this.pathPrefix, this.pathFilename); pathDisplay.append(this.path, this.pathPreview); pathLabel.append(pathDisplay);
-    this.copy = button('Copy path', () => native('copy')); pathRow.append(pathLabel, this.copy);
+    this.copy = iconButton('Copy path', 'copy', () => native('copy')); pathRow.append(pathLabel, this.copy);
     this.paths.append(this.pathSummary, this.pathList);
     const summaryValues = el('dl', 'summary-values');
     ['Private working set', 'Private commit', '', 'Peak (last 30m)'].forEach((label, index) => { const dt = index === 2 ? this.changeLabel : el('dt', '', label); const dd = el('dd', '', '—'); dd.tabIndex = 0; this.values.push(dd); summaryValues.append(dt, dd); });
     this.metric = select('Metric:', [['private_working_set', 'Private working set'], ['private_commit', 'Private commit']], value => send({ type: 'set_metric', value: value as Metric }));
     this.ranges = radios('View last', rangeChoices, value => send({ type: 'set_history_range', seconds: value === 'all' ? null : Number(value) }));
     this.axis = radios('Y-axis', [['zero', 'From zero'], ['fit', 'Fit values']], value => send({ type: 'set_from_zero', value: value === 'zero' }));
-    this.reset = button('Reset view', () => send({ type: 'reset_history_view' }));
+    this.reset = iconButton('Reset view', 'reset', () => send({ type: 'reset_history_view' }));
     this.follow = checkbox('Follow latest', value => send({ type: 'set_follow', value })); const navigation = el('div', 'history-navigation'); navigation.append(this.reset, this.follow.label);
     const historyControls = el('div', 'history-controls'); historyControls.append(this.metric.label, this.ranges.group, this.axis.group, navigation);
     this.inspector.append(inspectorHeading, this.hiddenSelection, pathRow, this.paths, summaryValues, this.coverage, historyControls, this.history.element);
@@ -120,12 +120,12 @@ export class Dashboard {
     this.splitter.setAttribute('aria-valuemin', '40'); this.splitter.setAttribute('aria-valuemax', '80');
     workspace.append(left, this.splitter, right);
     this.zoom = select('View scale:', [75, 100, 125, 150, 175, 200].map(n => [String(n), `${n}%`]), value => send({ type: 'set_ui_zoom', value: Number(value) }));
-    const details = button('Details', () => this.openDiagnostics(), 'link'); details.setAttribute('aria-haspopup', 'dialog');
+    const details = iconButton('Details', 'info', () => this.openDiagnostics(), 'link'); details.setAttribute('aria-haspopup', 'dialog');
     const footerBottom = el('div', 'footer-bottom'); const recording = el('span', '', 'Recording continues when display is paused'); recording.dataset.recording = 'true'; footerBottom.append(recording, this.notice, this.zoom.label);
     this.notice.setAttribute('role', 'status'); this.notice.setAttribute('aria-live', 'polite');
     this.footer.append(this.footerCounts, details, footerBottom);
     const diagnosticHeading = el('h2', '', 'Collection details'); diagnosticHeading.id = 'diagnostic-title'; this.diagnostics.setAttribute('aria-labelledby', diagnosticHeading.id);
-    this.diagnostics.append(diagnosticHeading, this.diagnosticText, button('Close details', () => this.closeDiagnostics()));
+    this.diagnostics.append(diagnosticHeading, this.diagnosticText, iconButton('Close details', 'close', () => this.closeDiagnostics()));
     this.diagnostics.addEventListener('close', () => { this.diagnosticOpen = false; });
     this.diagnostics.addEventListener('cancel', () => { this.diagnosticOpen = false; });
     this.element.append(this.header, workspace, this.footer, this.diagnostics);
@@ -149,7 +149,7 @@ export class Dashboard {
     this.progress.setAttribute('aria-valuetext', `${system} · Available ${bytes(latest?.available ?? null)}`);
     const status = view.collection.status.toLowerCase(); const live = status === 'live';
     text(this.live, view.paused ? `Display paused at ${dateTime(view.displayed_unix_ms)} · ${live ? 'Recording continues' : `Collector ${status}`}` : live ? 'Live · Updating every 2 seconds' : `Collector ${status}${view.collection.error ? ` · ${view.collection.error}` : ''}`);
-    this.live.title = `Last collection ${view.collection.age_seconds}s ago`; text(this.pause, view.paused ? 'Resume display' : 'Pause display');
+    this.live.title = `Last collection ${view.collection.age_seconds}s ago`; setIcon(this.pause, view.paused ? 'Resume display' : 'Pause display', view.paused ? 'play' : 'pause');
     this.group.set(view.settings.grouping); this.exited.input.checked = view.settings.show_exited; this.compact.input.checked = view.settings.compact;
     if (!this.editingFilter && document.activeElement !== this.filter) this.filter.value = view.settings.filter;
     this.clear.hidden = !this.filter.value; this.changeChoice.input.value = String(view.settings.change_seconds);
@@ -173,7 +173,7 @@ export class Dashboard {
     text(this.pathFilename, fullPaths.length === 1 ? pathValue.slice(Math.max(0, split)) : '');
     this.pathFilename.hidden = fullPaths.length !== 1;
     this.pathPreview.classList.toggle('has-filename', fullPaths.length === 1);
-    text(this.copy, selected && !selected.paths_complete ? 'Copy known paths' : selected && selected.path_count > 1 ? 'Copy all paths' : 'Copy path'); this.copy.disabled = !fullPaths.length;
+    this.copy.setAttribute('aria-label', selected && !selected.paths_complete ? 'Copy known paths' : selected && selected.path_count > 1 ? 'Copy all paths' : 'Copy path'); this.copy.title = this.copy.getAttribute('aria-label')!; this.copy.disabled = !fullPaths.length;
     this.paths.hidden = fullPaths.length < 2; text(this.pathSummary, `${fullPaths.length} known executable paths${selected?.paths_complete ? '' : ' · coverage incomplete'}`);
     const existing = [...this.pathList.children]; fullPaths.forEach((path, i) => { let li = existing[i]; if (!li) { li = el('li'); this.pathList.append(li); } text(li, path); }); existing.slice(fullPaths.length).forEach(li => li.remove());
     [selected?.private, selected?.commit, null, selected?.peak].forEach((r, i) => {
@@ -200,7 +200,7 @@ export class Dashboard {
     if (expanded) this.returnPosition = { tableTop: this.table.element.scrollTop, tableLeft: this.table.element.scrollLeft, inspectorTop: this.inspector.scrollTop };
     this.overviewExpanded = expanded; this.element.classList.toggle('overview-expanded', expanded);
     this.processPanel.hidden = expanded; this.splitter.hidden = expanded; this.inspector.hidden = expanded;
-    text(this.overviewToggle, expanded ? 'Back to processes' : 'Expand overview');
+    setIcon(this.overviewToggle, expanded ? 'Back to processes' : 'Expand overview', expanded ? 'back' : 'expand');
     this.overviewToggle.title = expanded ? 'Restore the process table and inspector (Escape)' : 'Make overall memory the main view';
     this.overview.setExpanded(expanded);
     if (!expanded && this.view) {

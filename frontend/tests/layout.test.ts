@@ -66,8 +66,8 @@ test('the overview honors its explicit plot height while selected history retain
   const window = dom(1280, 800); const dashboard = new Dashboard(() => {}, () => {}); document.body.append(dashboard.element);
   Object.defineProperty(dashboard.element.querySelector('.right-pane'), 'clientHeight', { value: 300 });
   dashboard.update(fixture());
-  const overview = dashboard.element.querySelector<SVGSVGElement>('.overview-panel svg')!;
-  const history = dashboard.inspector.querySelector<SVGSVGElement>('svg')!;
+  const overview = dashboard.element.querySelector<SVGSVGElement>('.overview-panel .memory-chart > svg')!;
+  const history = dashboard.inspector.querySelector<SVGSVGElement>('.memory-chart > svg')!;
   assert.equal(overview.style.height, '112px', 'The chart chooses its supported overview floor');
   assert.equal(parseFloat(window.getComputedStyle(overview).minHeight), 0, 'CSS cannot enlarge the viewport beyond the explicit SVG viewBox height');
   assert.ok(parseFloat(window.getComputedStyle(history).minHeight) > 0, 'Selected history retains a practical minimum');

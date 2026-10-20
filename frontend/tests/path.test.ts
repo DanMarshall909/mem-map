@@ -30,6 +30,6 @@ test('the path preview protects the complete executable tail independently of a 
     assert.equal(focusRule.style.visibility, 'hidden', 'Keep the preview layout while focus exposes the original input; actual focus styling is checked in WebView2');
     input.blur();
   }
-  [...dashboard.inspector.querySelectorAll('button')].find(button => button.textContent === 'Copy path')!.click();
+  [...dashboard.inspector.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === 'Copy path')!.click();
   assert.deepEqual(native, ['copy']); window.happyDOM.abort();
 });

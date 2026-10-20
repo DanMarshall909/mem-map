@@ -137,3 +137,38 @@ Escape returns to the dashboard, after a compact chart's labels have had their
 own Escape; dialogs retain their modal Escape. Ctrl+F and existing process/history
 shortcuts first reveal the relevant controls. No new IPC action, persisted setting,
 Tauri permission or backend behavior is introduced.
+
+## Expanded chart detail (MM-012)
+
+Expanded overview tick density follows plot width/height, capped at eight
+intervals without duplicate labels on short timelines. Both charts label age
+relative to their displayed right endpoint, ending at 0s even when paused/panned.
+
+The expanded overview alone overlays a legend in the plot's top-left corner.
+Each band is one line, with aligned name, bytes, share of physical RAM and change
+percentage columns. Names use optional `program_name` metadata when supplied,
+otherwise the layer's existing name, truncated to 20 Unicode characters including
+an ellipsis. Full names and values remain in help. The current Rust projection
+supplies executable names; this frontend does not guess friendly names or add
+metadata collection, IPC, persistence or permissions.
+
+All legend values and the cursor use the same nearest actual sample. Physical
+shares use exact BigInt bytes and that sample's capacity. Band change uses the
+selected change interval and the last valid attributed overview sample at or
+before the target, no older than four seconds (two collection intervals). Missing
+baselines/attribution stay unavailable; zero baselines use the table's existing
+New/zero convention. Red indicates growth, green decline, white no change. These
+changes describe the represented bands, including residual RAM, and do not reuse
+filtered table rows. A shorter displayed range may lack the requested baseline.
+
+Pointer departure restores the latest displayed sample regardless of focus.
+Keyboard arrows still provide deliberate sample/band inspection. A pointer-
+transparent cursor marks the inspected time and known used-memory point without
+reflow. SVG clipping protects column boundaries; labels never remove stack bands.
+
+The shared header owns the used/capacity/available summary. The plot keeps numeric
+memory axes and its dashed capacity line, with no repeated summary, endpoint
+bracket, below-plot legend or visible Chart data disclosure. Precise descriptions
+remain available to assistive technology and through hover help. Compact axis
+annotations retain hover/focus/tap behavior. Icon actions retain accessible names,
+tooltips and existing commands. The backend and headless-only test policy remain.

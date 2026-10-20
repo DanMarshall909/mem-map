@@ -260,7 +260,8 @@ try {
   await compactChart.locator('.chart-label-toggle').waitFor({ state: 'visible' });
   await page.mouse.move(0, 0); await page.locator('.system-summary').click();
   await compactChart.locator('.chart-labels').waitFor({ state: 'hidden' });
-  const compactDrawing = compactChart.locator('svg');
+  assert.equal(await compactChart.locator('.band-labels').isVisible(), false, 'Collapsed overview displays no legend');
+  const compactDrawing = compactChart.locator('svg[role=img]');
   const plotBefore = await compactDrawing.getAttribute('viewBox');
   const compactProof = await compactDrawing.evaluate(svg => {
     const line = svg.querySelector('line'); const box = svg.viewBox.baseVal;
@@ -270,7 +271,7 @@ try {
   await compactDrawing.hover();
   await compactChart.locator('.chart-labels').waitFor({ state: 'visible' });
   const overlayProof = await compactChart.evaluate(chart => {
-    const plot = chart.querySelector('svg').getBoundingClientRect(), labels = chart.querySelector('.chart-labels').getBoundingClientRect();
+    const plot = chart.querySelector('svg[role=img]').getBoundingClientRect(), labels = chart.querySelector('.chart-labels').getBoundingClientRect();
     return { overlap: Math.max(0, Math.min(plot.right, labels.right) - Math.max(plot.left, labels.left)) * Math.max(0, Math.min(plot.bottom, labels.bottom) - Math.max(plot.top, labels.top)),
       insideViewport: labels.left >= 0 && labels.right <= innerWidth && labels.top >= 0 && labels.bottom <= innerHeight };
   });
@@ -289,7 +290,7 @@ try {
   await page.touchscreen.tap(labelToggleBounds.x + labelToggleBounds.width / 2, labelToggleBounds.y + labelToggleBounds.height / 2);
   await compactChart.locator('.chart-labels').waitFor({ state: 'hidden' });
   check('585x774 charts reveal labels by hover, keyboard or tap without shrinking or obstructing the plot', { ...compactProof, ...overlayProof });
-  const historyDrawing = page.locator('.inspector-scroll .memory-chart svg');
+  const historyDrawing = page.locator('.inspector-scroll .memory-chart > svg[role=img]');
   await historyDrawing.scrollIntoViewIfNeeded(); await historyDrawing.hover();
   const historyBounds = await historyDrawing.boundingBox(); assert(historyBounds);
   await page.mouse.move(historyBounds.x + historyBounds.width * .45, historyBounds.y + historyBounds.height * .7);
@@ -326,13 +327,70 @@ try {
       return root.classList.contains('overview-expanded') && panel.width >= workspace.width * .98 && panel.height >= workspace.height * .95 && panel.height <= workspace.height + 2;
     }), 'main overview occupies the available workspace at each layout breakpoint');
     const geometry = await page.locator('.dashboard').evaluate(root => {
-      const plot = root.querySelector('.overview-panel svg').getBoundingClientRect();
+      const plot = root.querySelector('.overview-panel .memory-chart > svg').getBoundingClientRect();
       return { width: innerWidth, height: innerHeight, plotWidth: plot.width, plotHeight: plot.height, contained: document.documentElement.scrollWidth <= innerWidth + 1 && document.documentElement.scrollHeight <= innerHeight + 1 };
     });
     assert(geometry.contained, 'Main overview remains within the root viewport');
     assert(geometry.plotWidth > width * .85 && geometry.plotHeight > 200, 'The main plot uses expanded width and height');
     mainLayouts.push({ ...geometry, scale });
   }
+  if (!(await view()).paused) {
+    await page.getByRole('button', { name: 'Pause display', exact: true }).click();
+    await until(async () => (await view()).paused, 'freeze detailed inspection');
+  }
+  const detailFrame = await view(), detailChart = page.locator('.overview-panel .memory-chart');
+  await until(async () => detailChart.evaluate(chart => chart.classList.contains('chart-detailed')), 'roomy overview details');
+  const targetIndex = Math.floor(detailFrame.overview.samples.length / 2); assert(targetIndex > 0);
+  const targetSample = detailFrame.overview.samples[targetIndex];
+  const detailGeometry = await detailChart.locator('svg[role=img]').evaluate(svg => {
+    const line = svg.querySelector('line'), box = svg.getBoundingClientRect();
+    return { left: Number(line.getAttribute('x1')), right: Number(line.getAttribute('x2')), viewBox: svg.getAttribute('viewBox'), width: svg.viewBox.baseVal.width, screenLeft: box.left, screenTop: box.top, screenWidth: box.width, screenHeight: box.height };
+  });
+  const sampleX = sample => detailGeometry.left + (sample.at - detailFrame.overview.start) / Math.max(1, detailFrame.overview.end - detailFrame.overview.start) * (detailGeometry.right - detailGeometry.left);
+  await page.mouse.move(detailGeometry.screenLeft + sampleX(targetSample) / detailGeometry.width * detailGeometry.screenWidth, detailGeometry.screenTop + detailGeometry.screenHeight * .55);
+  await until(async () => (await detailChart.locator('.chart-description').innerText()).startsWith('Inspecting'), 'pointer sample details');
+  const assertSampleDetails = async sample => {
+    for (let index = 0; index < detailFrame.overview.layers.length; index++) {
+      const amount = sample.layers?.[index] ?? null, title = await detailChart.locator('.band-label title').nth(index).textContent();
+      assert(title.includes(`${amount ?? 'Unavailable'} raw bytes`), 'Direct label reads the inspected Rust sample, not the latest frame');
+      if (amount !== null && Number(sample.capacity) > 0) assert((await detailChart.locator('.band-label').nth(index).textContent()).includes(`${(Math.round(Number(amount) / Number(sample.capacity) * 1000) / 10).toFixed(1)}%`));
+    }
+    assert((await detailChart.locator('.chart-description').innerText()).includes(`${sample.measured} of ${sample.observed} processes measured`));
+    assert(Math.abs(Number(await detailChart.locator('.chart-cursor line').getAttribute('x1')) - sampleX(sample)) < .01, 'The cursor snaps to the actual inspected capture time');
+    assert.equal(await detailChart.locator('.chart-cursor circle').count(), sample.used === null ? 0 : 1);
+  };
+  const cornerProof = await detailChart.locator('svg[role=img]').evaluate(svg => {
+    const grid = svg.querySelector('line'), labels = [...svg.querySelectorAll('.band-label')].map(label => {
+      const rect = label.querySelector('rect');
+      return { x: Number(rect.getAttribute('x')), y: Number(rect.getAttribute('y')), width: Number(rect.getAttribute('width')), height: Number(rect.getAttribute('height')), textRight: Math.max(...[...label.querySelectorAll('text')].map(text => text.getBBox().x + text.getBBox().width)), cells: [...label.querySelectorAll('text')].map(text => ({ kind: text.getAttribute('class'), x: Number(text.getAttribute('x')), y: Number(text.getAttribute('y')), text: text.textContent })) };
+    });
+    const ages = [...svg.querySelectorAll('.chart-annotations text')].map(text => text.textContent).filter(text => /^\d+[smh](?: \d+[sm])?$/.test(text));
+    return { labels, left: Number(grid.getAttribute('x1')), top: Math.min(...[...svg.querySelectorAll('line[y1]')].map(line => Number(line.getAttribute('y1')))), ages, width: svg.viewBox.baseVal.width };
+  });
+  assert.equal(cornerProof.ages.at(-1), '0s', 'Displayed right endpoint is zero seconds, including paused views');
+  assert.equal(cornerProof.labels.length, detailFrame.overview.layers.length);
+  cornerProof.labels.forEach((label, index, labels) => {
+    assert(Math.abs(label.x - cornerProof.left - 10) < .1, 'Legend overlays the top-left corner');
+    assert(label.textRight <= label.x + label.width + 1, 'Legend text fits its background');
+    assert.equal(label.cells.length, 4); assert.equal(new Set(label.cells.map(cell => cell.y)).size, 1, 'Each band is one line');
+    assert([...label.cells[0].text].length <= 20, 'Displayed names are at most twenty characters');
+    assert.equal(label.cells[3].text, '\u2014', 'A newly started real host has no five-minute baseline');
+    if (index) { assert(label.y >= labels[index-1].y + labels[index-1].height, 'Legend rows do not overlap'); assert.deepEqual(label.cells.map(cell => cell.x), labels[0].cells.map(cell => cell.x), 'Legend figures align in columns'); }
+  });
+  assert(Math.abs(cornerProof.labels[0].y - cornerProof.top - 10) < .1);
+  assert.equal(await detailChart.locator('details, .legend, .chart-readout').count(), 0, 'No duplicated summaries or Chart data disclosure');
+  const iconProof = await page.locator('.icon-button').evaluateAll(buttons => buttons.every(button => button.getAttribute('aria-label') && button.title && !button.textContent && button.querySelector('svg[aria-hidden=true]')));
+  assert(iconProof, 'Icon actions retain accessible names and tooltips');
+  await assertSampleDetails(targetSample);
+  assert.equal(await detailChart.locator('svg[role=img]').getAttribute('viewBox'), detailGeometry.viewBox, 'Pointer inspection must not resize the plot');
+  await page.screenshot({ path: path.join(output, 'expanded-inspection.png') });
+  await detailChart.focus(); await page.keyboard.press('ArrowLeft');
+  await assertSampleDetails(detailFrame.overview.samples[targetIndex - 1]);
+  await page.mouse.move(0, 0);
+  await until(async () => (await detailChart.locator('.chart-description').innerText()).startsWith('Latest'), 'pointer departure restores latest details despite retained chart focus');
+  assert.equal(await detailChart.locator('.chart-cursor line').count(), 0);
+  await writeFile(path.join(output, 'detail-proof.json'), JSON.stringify({ source: targetSample, geometry: detailGeometry, inspectedX: sampleX(targetSample), keyboardSample: detailFrame.overview.samples[targetIndex - 1], cornerProof, iconProof }, null, 2));
+  check('Expanded corner legend, age axis and accessible icons retain coherent pointer and keyboard sample inspection');
   const overviewChoice = page.getByRole('combobox', { name: 'Overall memory view last', exact: true });
   await overviewChoice.selectOption('300');
   await until(async () => (await view()).settings.overview_range === 300, 'main overview range uses real controller');

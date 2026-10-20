@@ -21,25 +21,25 @@ test('column dragging at enlarged scale produces valid whole-pixel desktop prefe
   assert.ok(widths[1] > view.settings.column_widths[1]);
   window.happyDOM.abort();
 });
-test('physical chart labels its measured endpoint, capacity and available bracket inside the plot panel', () => {
+test('physical chart labels its bands directly without repeated global summaries', () => {
   const window = dom(); const dashboard = new Dashboard(() => {}, () => {}); document.body.append(dashboard.element);
   const view = fixture(); dashboard.update(view);
-  const plot = dashboard.element.querySelector('.overview-panel svg')!;
-  const labels = [...plot.querySelectorAll('text')].map(label => label.textContent);
-  const latest = view.overview.samples.at(-1)!;
-  assert.ok(labels.includes(`Capacity: ${bytes(view.overview.capacity)}`));
-  assert.ok(labels.includes(bytes(latest.used)));
-  assert.ok(labels.includes(`Available ${bytes(latest.available)}`));
+  const plot = dashboard.element.querySelector('.overview-panel .memory-chart > svg')!;
+  const labels = [...plot.querySelectorAll('.band-label text')].map(label => label.textContent).join(' ');
+  assert.match(labels, /worker.exe.*1.00 GiB/);
+  assert.equal(plot.querySelectorAll('.band-label').length, view.overview.layers.length);
+  assert(!dashboard.element.querySelector('.legend, .chart-readout'));
   window.happyDOM.abort();
 });
+
 test('unavailable physical capacity remains unknown instead of a zero capacity or zero-percent meter', () => {
   const window = dom(); const dashboard = new Dashboard(() => {}, () => {}); document.body.append(dashboard.element);
   const view = fixture(); view.overview.capacity = '0'; view.overview.samples = [];
   view.collection = { status: 'unavailable', age_seconds: 0, error: 'System reading failed' }; dashboard.update(view);
   assert.match(dashboard.element.querySelector('.system-summary')!.textContent!, /used — \/ —/);
   assert.equal(dashboard.element.querySelector('progress')!.hasAttribute('value'), false);
-  assert.match(dashboard.element.querySelector('.overview-panel svg')!.textContent!, /Capacity: —/);
-  assert.doesNotMatch(dashboard.element.querySelector('.overview-panel .chart-readout')!.textContent!, /0 B/);
+  assert.equal(dashboard.element.querySelectorAll('.overview-panel .chart-annotations text').length, 3);
+  assert.doesNotMatch(dashboard.element.querySelector('.overview-panel output')!.textContent!, /0 B/);
   window.happyDOM.abort();
 });
 test('each explicit Show processes response can reveal the same child while polling never scrolls it', () => {
@@ -66,9 +66,9 @@ test('pointer sample inspection and history dragging use the rendered plot at ev
     const width = Number(plot.getAttribute('viewBox')!.split(' ')[2]); const line = plot.querySelector('line')!;
     const left = Number(line.getAttribute('x1')), right = Number(line.getAttribute('x2'));
     const pixel = (x: number) => 100 + x / width * 900;
-    for (const [position, expected] of [[left, '0:00'], [(left + right) / 2, '5:00'], [right, '10:00']] as const) {
+    for (const [position, expected] of [[left, '10m'], [(left + right) / 2, '5m'], [right, '0s']] as const) {
       plot.dispatchEvent(new window.PointerEvent('pointermove', { clientX: pixel(position), bubbles: true }));
-      assert.ok(chart.element.querySelector('.chart-data')!.textContent!.includes(`· ${expected} elapsed`), `${kind} ${scale}% at ${expected}`);
+      assert.ok(chart.element.querySelector('.chart-data')!.textContent!.includes(`· ${expected} ago`), `${kind} ${scale}% at ${expected}`);
     }
     if (kind === 'history') {
       plot.dispatchEvent(new window.PointerEvent('pointerdown', { clientX: pixel(left), button: 0, pointerId: 1, bubbles: true }));
@@ -114,8 +114,8 @@ test('repeated live frames retain inspector scroll, focused control and selected
   assert.equal(dashboard.inspector, inspector); assert.equal(inspector.scrollTop, 233); assert.equal(document.activeElement, metric);
   assert.equal(inspector.querySelector('fieldset'), ranges); assert.equal(dashboard.element.querySelectorAll('.inspector-scroll').length, 1);
   const follow = [...inspector.querySelectorAll('input')].find(input => input.parentElement?.textContent === 'Follow latest')!; assert.equal(follow.checked, false);
-  assert.match(inspector.textContent!, /Requested: 30m · Recorded: 10m 00s/);
-  const chartData = inspector.querySelector('.chart-data')!; chartData.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); assert.match(chartData.textContent!, /5:00 elapsed/);
+  assert.match(inspector.textContent!, /Drag to pan.*Scroll to zoom/);
+  const chartData = inspector.querySelector('.chart-data')!; chartData.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); assert.match(chartData.textContent!, /5m ago/);
   window.happyDOM.abort();
 });
 
@@ -125,7 +125,7 @@ test('path aggregates retain original identity, clipboard action and accessible 
   const long = 'C:\\Program Files\\' + 'original long directory\\'.repeat(8) + 'worker.exe';
   view.table.rows[0].detail = long; view.selected!.paths = [long, 'D:\\Other\\worker.exe']; view.selected!.path_count = 2; dashboard.update(view);
   assert.match(dashboard.table.element.querySelector('[data-row-id="name:worker"]')!.textContent!, /original long directory/);
-  const copy = [...dashboard.inspector.querySelectorAll('button')].find(b => b.textContent === 'Copy all paths')!; copy.click(); assert.deepEqual(native, ['copy']);
+  const copy = [...dashboard.inspector.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'Copy all paths')!; copy.click(); assert.deepEqual(native, ['copy']);
   assert.equal(dashboard.inspector.querySelector('input[readonly]')!.getAttribute('aria-description'), `${long}; D:\\Other\\worker.exe`);
   assert.ok(dashboard.inspector.textContent!.includes(long));
   window.happyDOM.abort();
@@ -169,7 +169,7 @@ test('semantic controls dispatch the agreed domain actions and preserve in-progr
   dashboard.element.querySelector('select[aria-label="Metric"]')!.dispatchEvent(new window.Event('change'));
   dashboard.inspector.querySelector<HTMLInputElement>('input[value="900"]')!.click();
   dashboard.inspector.querySelector<HTMLInputElement>('input[value=fit]')!.click();
-  [...dashboard.element.querySelectorAll('button')].find(b => b.textContent === 'Pause display')!.click();
+  [...dashboard.element.querySelectorAll('button')].find(b => b.getAttribute('aria-label') === 'Pause display')!.click();
   assert.deepEqual(actions, [{ type: 'set_grouping', value: 'family' }, { type: 'set_metric', value: 'private_commit' }, { type: 'set_history_range', seconds: 900 }, { type: 'set_from_zero', value: false }, { type: 'set_paused', value: true }]);
   const filter = dashboard.element.querySelector<HTMLInputElement>('input[type=search]')!; filter.focus(); filter.value = 'hidden original directory'; filter.dispatchEvent(new window.Event('input'));
   dashboard.update(structuredClone(view)); assert.equal(filter.value, 'hidden original directory'); assert.equal(actions.length, 5);
@@ -177,11 +177,12 @@ test('semantic controls dispatch the agreed domain actions and preserve in-progr
   window.happyDOM.abort();
 });
 
-test('overview keeps sample navigation accessible through an explicit disclosure instead of consuming legend space', () => {
+test('chart itself supports keyboard inspection without a Chart data disclosure', () => {
   const window = dom(); const dashboard = new Dashboard(() => {}, () => {}); document.body.append(dashboard.element); dashboard.update(fixture());
-  const panel = dashboard.element.querySelector('.overview-panel')!;
-  const inspection = panel.querySelector<HTMLDetailsElement>('.chart-inspection'); assert.ok(inspection, 'chart data has a keyboard-accessible disclosure');
-  assert.equal(inspection.open, false); assert.equal(inspection.querySelector('summary')!.textContent, 'Chart data');
-  assert.ok(inspection.querySelector('.chart-data')); assert.equal(panel.querySelectorAll('.legend-entry').length, 2);
-  inspection.open = true; assert.match(inspection.textContent!, /Used 24\.00 GiB/); window.happyDOM.abort();
+  const chart = dashboard.element.querySelector<HTMLElement>('.overview-panel .memory-chart')!;
+  assert(!chart.querySelector('details, .legend'));
+  chart.focus(); chart.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+  assert.match(chart.querySelector('output')!.textContent!, /5m ago/);
+  assert.equal(chart.getAttribute('aria-describedby'), chart.querySelector('output')!.id);
+  window.happyDOM.abort();
 });

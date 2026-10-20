@@ -42,6 +42,35 @@ process/history shortcuts reveal the controls they address. Keep switch focus
 visible. Normal dashboard layout and compact hover/focus/tap labels remain
 available. No backend command or persisted setting is added.
 
+### Detail on the larger graph
+
+Expanded overall memory uses its available plot width/height for adaptive grids,
+capped at eight divisions without duplicate short-timeline labels. Global used,
+capacity and available values have one visible summary in the shared header.
+Action buttons use recognizable icons with accessible names and tooltips.
+
+Only the expanded overview shows a legend, over the top-left of the plot. Each
+band has one line, with aligned name, bytes, share of physical RAM and change
+percentage columns. Names use supplied program-name metadata when available,
+otherwise executable identity, capped at 20 Unicode characters including an
+ellipsis; full names/values remain in help. The current backend supplies
+executable names only; no friendly-name guesses or metadata collector is added.
+
+Legend, cursor and accessible detail inspect the same nearest actual sample.
+Exact-byte physical shares use that sample's own capacity. Band change uses
+the selected change interval and the last valid attributed overview sample at
+or before its target, no older than four seconds (two collection intervals).
+Missing baselines/attribution remain unavailable, including when the visible
+range omits the baseline. Zero-baseline and red/green/white change conventions
+match the table. Do not substitute filtered table values or invent history.
+
+Pointer inspection never changes plot geometry. Mark the inspected time with a
+cursor and known used memory with a point. Pointer exit restores latest displayed
+readings even while chart focus remains. Left/Right navigate actual samples;
+Up/Down select bands for accessible detail. Exact information stays available
+without a visible Chart data disclosure. Preserve compact axis hover/focus/tap,
+main-view navigation and the existing backend.
+
 ### Theme tokens
 
 Define shared resources instead of assigning colours separately to individual controls.
@@ -476,24 +505,18 @@ Each process instance must contribute once. Table aggregate rows and their child
 
 ### Capacity and available headroom
 
-Draw a dashed horizontal capacity line, labelled:
-
-**Capacity: 31.70 GiB**
-
-At the latest displayed timestamp, show:
-
-- A marker and label at the stack endpoint: **24.20 GiB**.
-- A bracket between that endpoint and capacity: **Available 7.50 GiB**.
-
-Position both annotations from the actual values. For roomy charts, reserve enough space at the right of the plot so labels remain inside the panel. For compact charts, reveal annotations through hover, keyboard focus or an info-button tap rather than reserving a label gutter.
+Draw a dashed horizontal capacity line with numeric memory-axis ticks and a GiB
+unit. The shared header owns the used/capacity/available summary; do not repeat
+those totals in an endpoint label, bracket or below-plot readout. Compact axis
+annotations appear on hover, keyboard focus or an info-button tap.
 
 ### Legend and interaction
 
-For roomy charts, place the legend below the plot in the same order as the layers. Let it wrap without truncating names.
+Show the top-left, single-line legend only when the overview is expanded, in the same order as its layers. Align figures in columns, cap names at 20 characters and retain full names in help. There is no sidebar or below-plot legend.
 
-Determine compactness from each chart's own width relative to UI text scale. At compact widths, hide the legend, readout, descriptions and SVG annotations from normal layout until hover, keyboard focus or an info-button tap. Reveal labels in a viewport-clamped popover beside the plot when possible, without changing plot/data coordinates or blocking plot input. Escape, outside pointer input and keyboard focus leaving the chart dismiss the labels. Preserve keyboard sample navigation and an accessible chart description.
+Determine compactness from each chart's own width relative to UI text scale. At compact widths, reveal axis annotations and concise sample help on hover, keyboard focus or an info-button tap. The expanded legend remains an overlay; the sidebar never displays it. A viewport-clamped sample-help popover sits beside the plot when possible without changing plot/data coordinates or blocking plot input. Escape, outside pointer input and leaving by keyboard dismiss this help. Preserve keyboard sample/band navigation and accessible precise descriptions without a visible Chart data disclosure.
 
-Hovering or keyboard-focusing a band should reveal:
+Hovering a band or selecting it with Up/Down while the chart is focused should expose precise accessible/help information:
 
 - Timestamp.
 - Group or category name.
@@ -504,7 +527,7 @@ Hovering or keyboard-focusing a band should reveal:
 
 The band value is its thickness, not its cumulative upper boundary.
 
-Legend interaction may highlight a band, but avoid removing it from the stack: the complete area should continue representing overall used RAM.
+Keep every band in the stack when inspecting it: the complete area continues representing overall used RAM.
 
 ### Recorded history and gaps
 
@@ -633,13 +656,11 @@ Preserve wheel-based chart time zoom if it already exists.
 
 Manual panning or zooming should turn **Follow latest** off. Re-enabling it returns the viewport to the newest displayed sample.
 
-Use elapsed session time consistently on both charts, with wall-clock timestamps available in tooltips.
+Use sample age on both charts, measured backward from the displayed right endpoint: 0 seconds on the right, increasing to the left, including frozen or panned views. Retain wall-clock capture times in help; do not show time since app startup.
 
 ### History availability
 
-Display:
-
-**Requested: 30m · Recorded: 5m 06s**
+Retain the requested-range selector and the inspector's explanation of available history. Do not add a repeated requested/recorded row under the graph.
 
 For a newly observed process, use that process’s available history. **All** means all retained history for the selected entity.
 

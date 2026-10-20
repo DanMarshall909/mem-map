@@ -1182,6 +1182,41 @@ mod tests {
         }
     }
     #[test]
+    fn band_navigation_twelve_named_layers_keep_exact_residuals_in_both_metrics() {
+        let mut h = History::default();
+        let processes = (0..15)
+            .map(|i| {
+                let mut p = process(i + 1, &format!("Program{i:02}.exe"), 1000 - i as u64 * 10);
+                p.commit = 300 + i as u64 * 17;
+                p
+            })
+            .collect();
+        h.observe(frame(0, processes));
+        let named_private: u64 = (0..12).map(|i| 1000 - i * 10).sum();
+        let other_private: u64 = (12..15).map(|i| 1000 - i * 10).sum();
+        let named_commit: u64 = (0..12).map(|i| 300 + i * 17).sum();
+        let other_commit: u64 = (12..15).map(|i| 300 + i * 17).sum();
+        let working = overview_metric(&h, Range::All, Metric::PrivateWorkingSet);
+        assert_eq!(working.layers.len(), 14);
+        let values = working.samples[0].layers.as_ref().unwrap();
+        assert_eq!(values[1], other_private);
+        assert_eq!(values[2..].iter().sum::<u64>(), named_private);
+        assert_eq!(values.iter().sum::<u64>(), working.samples[0].used.unwrap());
+        let committed = overview_metric(&h, Range::All, Metric::PrivateCommit);
+        assert_eq!(committed.layers.len(), 13);
+        let values = committed.samples[0].layers.as_ref().unwrap();
+        assert_eq!(values[0], other_commit);
+        assert_eq!(values[1..].iter().sum::<u64>(), named_commit);
+        assert_eq!(values.iter().sum::<u64>(), named_commit + other_commit);
+        assert_eq!(committed.samples[0].used, Some(named_commit + other_commit));
+        assert!(working.layers[0].selection.is_none() && working.layers[1].selection.is_none());
+        assert!(
+            working.layers[2..]
+                .iter()
+                .all(|layer| matches!(layer.selection, Some(Selection::Name(_))))
+        );
+    }
+    #[test]
     fn inspector_context_retains_coverage_skips_invalid_baselines_and_marks_exit() {
         let mut h = History::default();
         let selection = Selection::Name("worker.exe".into());
@@ -1383,7 +1418,7 @@ mod tests {
         assert_eq!(plot.samples[0].available, Some(8 * gib));
         assert_eq!(
             plot.samples[0].layers,
-            Some(vec![15 * gib, 3 * gib, 3 * gib, 2 * gib, gib])
+            Some(vec![15 * gib, 0, 3 * gib, 2 * gib, gib, gib, gib, gib])
         );
         assert_eq!(
             plot.samples[0].measured, 6,

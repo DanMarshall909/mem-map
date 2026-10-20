@@ -1,4 +1,4 @@
-import type { Action, Inspection, OverviewSample, View } from './contract.ts';
+import type { Action, Inspection, Overview, OverviewSample, View } from './contract.ts';
 import { iconButton, el, text } from './dom.ts';
 import { bytes, changePercent, dateTime, plotValue, readingHelp } from './format.ts';
 const NS = 'http://www.w3.org/2000/svg';
@@ -8,7 +8,22 @@ function age(seconds: number): string {
   if (value < 3600) return `${Math.floor(value / 60)}m${value % 60 ? ` ${value % 60}s` : ''}`;
   return `${Math.floor(value / 3600)}h${Math.floor(value % 3600 / 60) ? ` ${Math.floor(value % 3600 / 60)}m` : ''}`;
 }
-const colors = ['#7b858b', '#347758', '#6cbc8b', '#f2a14a', '#d48c36'];
+const colors = ['#7b858b', '#347758', '#6cbc8b', '#f2a14a', '#d48c36', '#65a7c7', '#b38cd4', '#cf7887', '#a8b96a', '#dfbf6f', '#6eb5aa', '#8a9bd4', '#c58f6c', '#9cbb91'];
+/** Fold hidden named bands without losing exact bytes or their comparison baseline. */
+function fitOverview(source: Overview, limit: number): Overview {
+  const other = source.layers.findIndex(layer => layer.id === null && layer.name === 'Other processes');
+  let named = 0;
+  const keep = source.layers.map((layer, index) => ({ layer, index })).filter(({ layer }) => layer.id === null || named++ < limit);
+  if (other < 0 || keep.length === source.layers.length) return source;
+  const indices = new Set(keep.map(entry => entry.index));
+  const hidden = source.layers.map((_, index) => index).filter(index => !indices.has(index));
+  const fold = (values: string[]) => keep.map(({ index }) => index === other
+    ? hidden.reduce((sum, i) => sum + BigInt(values[i]), BigInt(values[other])).toString() : values[index]);
+  return { ...source, layers: keep.map(entry => entry.layer), samples: source.samples.map(sample => ({ ...sample,
+    layers: sample.layers === null ? null : fold(sample.layers),
+    baseline: sample.baseline === null ? null : { ...sample.baseline, layers: fold(sample.baseline.layers) },
+  })) };
+}
 function share(value: string | null, capacity: string): string | null {
   if (value === null || BigInt(value) < 0n || BigInt(capacity) <= 0n) return null;
   const total = BigInt(capacity), tenths = (BigInt(value) * 1000n + total / 2n) / total;
@@ -46,6 +61,7 @@ export class MemoryChart {
   private dismissed = false;
   private entries: SVGGElement[] = [];
   private view: View | null = null;
+  private sourceView: View | null = null;
   private selectedId: string | null = null;
   private kind: 'overview' | 'history';
   private send: (action: Action) => void;
@@ -57,13 +73,13 @@ export class MemoryChart {
   constructor(kind: 'overview' | 'history', send: (action: Action) => void, inspect: (sample: Inspection | null) => void = () => {}) {
     this.kind = kind; this.send = send; this.inspect = inspect;
     this.element.setAttribute('role', 'group');
-    this.element.setAttribute('aria-label', `${kind === 'overview' ? 'Overall memory' : 'Selected history'} chart; focus or hover for labels; Left and Right Arrow inspect samples, Up and Down Arrow select bands`);
+    this.element.setAttribute('aria-label', `${kind === 'overview' ? 'Overall memory' : 'Selected history'} chart; focus or hover for labels; Left and Right Arrow inspect samples, Up and Down Arrow select bands${kind === 'overview' ? '; Enter opens the selected program' : ''}`);
     this.labels.id = `${kind}-chart-labels`;
-    this.labelToggle = iconButton('Show chart labels', 'info', () => { this.pinned = !this.pinned; this.dismissed = !this.pinned; this.updateLabels(); }, 'chart-label-toggle');
+    this.labelToggle = iconButton('Show chart labels', 'info', () => { this.pinned = !this.pinned; this.dismissed = !this.pinned; this.updateLabels(); this.updateReadout(); }, 'chart-label-toggle');
     this.labelToggle.setAttribute('aria-controls', this.labels.id);
-    this.element.addEventListener('pointerenter', e => { if (e.pointerType !== 'touch') { this.pointerInside = true; this.dismissed = false; this.updateLabels(); } });
+    this.element.addEventListener('pointerenter', e => { if (e.pointerType !== 'touch') { this.pointerInside = true; this.dismissed = false; this.updateLabels(); this.updateReadout(); } });
     this.element.addEventListener('pointerleave', () => { this.pointerInside = false; if (!this.drag) { this.hover = null; this.updateReadout(); } this.updateLabels(); });
-    this.element.addEventListener('focusin', () => { this.dismissed = false; this.updateLabels(); });
+    this.element.addEventListener('focusin', () => { this.dismissed = false; this.updateLabels(); this.updateReadout(); });
     this.element.addEventListener('focusout', () => queueMicrotask(() => {
       if (!this.element.contains(document.activeElement)) this.dismissLabels(); else this.updateLabels();
     }));
@@ -72,7 +88,9 @@ export class MemoryChart {
     });
     window.addEventListener('scroll', () => { if (this.compact && !this.labels.hidden) this.positionLabels(); }, { capture: true, passive: true });
     this.element.addEventListener('keydown', e => {
+      if (this.kind === 'overview' && e.key === 'Enter' && e.target === this.element) { e.preventDefault(); this.openBand(this.band); }
       if (this.kind === 'history' && e.key === 'Escape') { this.hover = null; this.updateReadout(); }
+      if (this.kind === 'overview' && !this.expanded && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.dismissLabels(); }
       if (e.key === 'Escape' && this.compact && !this.labels.hidden) {
         e.preventDefault(); e.stopPropagation(); this.element.focus({ preventScroll: true });
         this.dismissLabels();
@@ -82,6 +100,16 @@ export class MemoryChart {
     this.element.setAttribute('aria-describedby', this.data.id);
     this.labels.append(this.description);
     this.element.append(this.drawing, this.labelToggle, this.labels, this.data);
+    this.drawing.addEventListener('dblclick', event => {
+      if (this.kind !== 'overview') return;
+      // A live redraw can replace a path between clicks. The SVG is persistent;
+      // recover the current band at the pointer if the browser targets that root.
+      const target = event.target;
+      let entry = target instanceof Element ? target.closest('[data-process-id]') : null;
+      if (!entry && typeof document.elementFromPoint === 'function') entry = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-process-id]') ?? null;
+      if (!entry || !this.drawing.contains(entry)) return;
+      this.openBand(this.view?.overview.layers.findIndex(layer => layer.id === entry.getAttribute('data-process-id')) ?? -1);
+    });
     this.element.addEventListener('keydown', e => {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); this.step(e.key === 'ArrowLeft' ? -1 : 1); }
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -110,17 +138,23 @@ export class MemoryChart {
     }
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.draw()).observe(this.element);
   }
-  private color(index: number): string { return colors[(index + (this.view?.settings.overview_metric === 'private_commit' ? 1 : 0)) % colors.length]; }
+  private color(index: number): string {
+    const layer = this.view?.overview.layers[index];
+    const original = this.sourceView?.overview.layers.findIndex(value => layer?.id ? value.id === layer.id : value.name === layer?.name) ?? index;
+    return colors[(Math.max(0, original) + (this.view?.settings.overview_metric === 'private_commit' ? 1 : 0)) % colors.length];
+  }
+  private openBand(index: number): void {
+    const id = this.kind === 'overview' ? this.view?.overview.layers[index]?.id : null;
+    if (id) { this.band = index; this.send({ type: 'open_overview_process', id }); }
+  }
   update(view: View): void {
-    const selected = this.view?.overview.layers[this.band];
     if (this.kind === 'history' && this.selectedId !== (view.selected?.id ?? null)) this.hover = null;
     this.selectedId = view.selected?.id ?? null;
-    this.view = view;
-    if (selected) this.band = Math.max(0, view.overview.layers.findIndex(layer => selected.id ? layer.id === selected.id : layer.name === selected.name));
+    this.sourceView = view;
     this.draw();
   }
   setExpanded(value: boolean): void { this.expanded = value; this.draw(); }
-  private dismissLabels(): void { this.pinned = false; this.dismissed = true; if (this.kind === 'history') { this.hover = null; this.updateReadout(); } this.updateLabels(); }
+  private dismissLabels(): void { this.pinned = false; this.dismissed = true; if (this.kind === 'history') this.hover = null; this.updateReadout(); this.updateLabels(); }
   private updateLabels(): void {
     const visible = !this.compact || !this.dismissed && (this.pinned || this.pointerInside || this.element.contains(document.activeElement));
     const popover = typeof this.labels.showPopover === 'function' && this.labels.isConnected;
@@ -194,16 +228,19 @@ export class MemoryChart {
     const { left, right, top } = this.plot;
     const commit = this.view!.settings.overview_metric === 'private_commit';
     const capacity = commit ? sample?.used ?? '0' : sample?.capacity ?? overview.capacity;
-    const labelWidth = Math.min(420 * scale, right - left - 20 * scale);
+    const labelWidth = Math.min((this.expanded ? 420 : 320) * scale, right - left - 20 * scale);
     const interval = this.view!.settings.change_seconds;
     // The Rust projection supplies the retained baseline even when it falls
     // outside the visible plot. Missing/stale readings stay unavailable.
     const baseline = sample?.baseline;
-    if (this.expanded) this.bandLabels.removeAttribute('display');
+    if (this.expanded || !this.dismissed && (this.pointerInside || this.pinned || this.element.contains(document.activeElement))) this.bandLabels.removeAttribute('display');
     else this.bandLabels.setAttribute('display', 'none');
     overview.layers.forEach((layer, index) => {
       let entry = this.entries[index];
       if (!entry) { entry = svg('g', { class: 'band-label', 'pointer-events': 'all' }); this.entries[index] = entry; entry.addEventListener('pointerenter', () => { this.band = index; this.updateReadout(); }); }
+      entry.style.cursor = layer.id ? 'pointer' : 'default';
+      entry.setAttribute('pointer-events', this.expanded ? 'all' : 'none');
+      if (layer.id) entry.setAttribute('data-process-id', layer.id); else entry.removeAttribute('data-process-id');
       const amount = sample?.used == null ? null : sample.layers?.[index] ?? null;
       const percentage = share(amount, capacity), before = baseline?.layers?.[index] ?? null;
       const delta = amount === null || before === null ? null : (BigInt(amount) - BigInt(before)).toString();
@@ -215,11 +252,14 @@ export class MemoryChart {
       entry.replaceChildren(svg('title', {}, `${fullName}; ${layer.name}; ${amount ?? 'Unavailable'} raw bytes; share of ${commit ? 'measured private commit' : 'physical RAM'} at ${sample ? dateTime(sample.captured_unix_ms) : 'unavailable time'}; Change over ${age(interval)}: ${change.label}; ${change.help}${sample?.reason ? `; ${sample.reason}` : ''}`));
       entry.append(svg('rect', { x, y, width: labelWidth, height: 22 * scale, rx: 3 * scale, fill: '#202327', 'fill-opacity': '.88' }));
       entry.append(svg('rect', { x, y, width: 3 * scale, height: 22 * scale, fill: this.color(index) }));
-      const fields = [
+      const fields = this.expanded ? [
         { kind: 'name', value: name, start: 0, end: .40, color: '#eceff1' },
         { kind: 'value', value: bytes(amount), start: .40, end: .63, color: '#eceff1' },
         { kind: 'share', value: percentage ?? '\u2014', start: .63, end: .80, color: '#b8c0c6' },
         { kind: 'change', value: change.label, start: .80, end: 1, color: change.color },
+      ] : [
+        { kind: 'name', value: name, start: 0, end: .65, color: '#eceff1' },
+        { kind: 'value', value: bytes(amount), start: .65, end: 1, color: '#eceff1' },
       ];
       fields.forEach(field => {
         const id = `overview-legend-${index}-${field.kind}`, clip = svg('clipPath', { id });
@@ -227,14 +267,15 @@ export class MemoryChart {
         const cell = svg('text', { class: `legend-${field.kind}`, x: field.kind === 'name' ? x + 7 * scale : x + labelWidth * field.end - 7 * scale, y: y + 15 * scale, fill: field.color, 'font-size': 12 * scale, 'text-anchor': field.kind === 'name' ? 'start' : 'end', 'clip-path': `url(#${id})` }, field.value);
         entry.append(clip, cell);
       });
-      this.bandLabels.append(entry);
+      if (entry.parentNode !== this.bandLabels) this.bandLabels.append(entry);
     });
     for (let index = overview.layers.length; index < this.entries.length; index++) this.entries[index].remove();
     text(this.description, sample ? `${this.hover === null ? 'Latest' : 'Inspecting'} · ${age(overview.end - sample.at)} ago · ${sample.measured} of ${sample.observed} processes measured` : 'No system memory samples recorded');
     this.description.title = sample ? dateTime(sample.captured_unix_ms) : '';
   }
   private draw(): void {
-    const view = this.view; if (!view) return;
+    let view = this.sourceView; if (!view) return;
+    const selectedBand = this.view?.overview.layers[this.band];
     const scale = view.settings.ui_zoom / 100;
     const width = Math.max(260 * scale, this.element.clientWidth || 600 * scale);
     this.compact = width / scale < 440;
@@ -253,6 +294,10 @@ export class MemoryChart {
         : Math.max((this.compact && !this.expanded ? 168 : 112) * scale, (panel?.clientHeight || 260 * scale) - overhead);
     }
     const left = (this.compact ? 12 : 52) * scale, right = width - (this.compact ? 12 : 18) * scale, top = 25 * scale, bottom = height - 34 * scale;
+    const residuals = view.overview.layers.filter(layer => layer.id === null).length;
+    const limit = Math.max(1, Math.min(12, Math.floor((bottom - top - 20 * scale) / (24 * scale)) - residuals, Math.floor((right - left) / (55 * scale))));
+    this.view = view = this.kind === 'overview' ? { ...view, overview: fitOverview(view.overview, limit) } : view;
+    if (selectedBand) this.band = Math.max(0, view.overview.layers.findIndex(layer => selectedBand.id ? layer.id === selectedBand.id : layer.name === selectedBand.name));
     this.plot = { width, left, right, top, bottom, minimum: 0, maximum: Number(view.overview.capacity) || 1 };
     this.drawing.setAttribute('viewBox', `0 0 ${width} ${height}`); this.drawing.style.height = `${height}px`;
     this.drawing.replaceChildren();
@@ -316,6 +361,7 @@ export class MemoryChart {
           return { x: x(p.at), low: y(low), high: y(low + Number(p.layers[index] ?? 0)) };
         });
         const path = svg('path', { d: pathSegments(bands), fill: this.color(index), stroke: '#202327', 'stroke-width': 0.6, opacity: this.band === index ? '1' : '0.88' });
+        if (_layer.id) { path.setAttribute('data-process-id', _layer.id); path.style.cursor = 'pointer'; }
         path.addEventListener('pointerenter', () => { this.band = index; this.updateReadout(); }); areas.append(path);
       });
     } else {

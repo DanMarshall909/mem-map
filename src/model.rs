@@ -711,7 +711,7 @@ impl History {
             prominent.sort_by(|(an, a), (bn, b)| b.bytes.cmp(&a.bytes).then_with(|| an.cmp(bn)));
             self.named_bands = prominent
                 .into_iter()
-                .take(3)
+                .take(12)
                 .map(|(name, _)| name.clone())
                 .collect();
         }
@@ -1354,6 +1354,29 @@ mod tests {
             generation: 0
         }));
         assert!(h.tracks.len() <= MAX_TRACKS);
+    }
+    #[test]
+    fn band_navigation_pool_keeps_twelve_initial_ranked_names_stable() {
+        let mut h = History::default();
+        let processes = (0..15)
+            .rev()
+            .map(|i| {
+                let mut p = sample(i + 1, 1, 100 - i);
+                p.name = format!("Program{i:02}.exe");
+                p
+            })
+            .collect();
+        h.observe(frame(0, processes));
+        let expected: Vec<_> = (0..12).map(|i| format!("program{i:02}.exe")).collect();
+        assert_eq!(h.named_bands, expected);
+        let mut new = sample(99, 1, 99999);
+        new.name = "Later.exe".into();
+        h.observe(frame(2, vec![new]));
+        assert_eq!(
+            h.named_bands, expected,
+            "Later growth and exits must not change band identities"
+        );
+        assert_eq!(h.named_bands.len(), 12);
     }
     fn sample(pid: u32, created: u64, ram_kib: u32) -> ProcessSample {
         ProcessSample {

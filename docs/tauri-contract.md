@@ -86,6 +86,19 @@ Actions are tagged with `type`, with the listed additional fields:
 - `set_column_widths {value}`, `set_splitter {value}`, `set_ui_zoom {value}`.
 
 Actions validate bounded values and resolve IDs against known controller state.
+
+`open_overview_process {id}` accepts only a registered name selection from the
+displayed history's bounded named-band pool. It changes grouping to Name, clears
+the filter, selects and explicitly reveals that program, enabling exited rows
+only when the target needs it. Metrics, ranges, density and pause remain intact.
+Invalid and residual targets reject before mutation. Browser band/legend double
+click and chart Enter use this action; expanded overview returns to the table.
+
+The retained named-band pool is session-stable and capped at 12 programs. The
+renderer shows as many as fit the chart's width/height/text scale and folds hidden
+named allocations into Other processes, including baseline allocations, using
+exact integer bytes. Unknown layers stay unknown; source totals and identities
+are unchanged. Resizing restores the same named bands/colors as room returns.
 Explicit sort/filter/group changes apply immediately even during order hold.
 Follow-off latches the endpoint; changing range clears manual zoom and retains
 Follow-off; reset clears manual viewport and restores Follow. The frontend consumes
@@ -158,7 +171,9 @@ Expanded overview tick density follows plot width/height, capped at eight
 intervals without duplicate labels on short timelines. Both charts label age
 relative to their displayed right endpoint, ending at 0s even when paused/panned.
 
-The expanded overview alone overlays a legend in the plot's top-left corner.
+The expanded overview overlays a detailed legend in the plot's top-left corner.
+The normal overview reveals a name/size-only corner legend on pointer hover,
+keyboard focus or its compact info toggle, without reducing the plot area.
 Each band is one line, with aligned name, bytes, share of physical RAM and change
 percentage columns. Names use optional `program_name` metadata when supplied,
 otherwise the layer's existing name, truncated to 20 Unicode characters including

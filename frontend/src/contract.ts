@@ -53,6 +53,7 @@ export type Action =
   | { type: 'set_change_seconds' | 'set_splitter' | 'set_ui_zoom'; value: number }
   | { type: 'sort_by'; column: SortColumn }
   | { type: 'select_row' | 'toggle_expanded'; id: string }
+  | { type: 'open_overview_process'; id: string }
   | { type: 'show_selected_processes' | 'reset_history_view' | 'select_process_parent' }
   | { type: 'set_metric' | 'set_overview_metric'; value: Metric }
   | { type: 'set_overview_range' | 'set_history_range'; seconds: number | null }

@@ -268,7 +268,7 @@ try {
   await compactChart.locator('.chart-label-toggle').waitFor({ state: 'visible' });
   await page.mouse.move(0, 0); await page.locator('.system-summary').click();
   await compactChart.locator('.chart-labels').waitFor({ state: 'hidden' });
-  assert.equal(await compactChart.locator('.band-labels').isVisible(), false, 'Collapsed overview displays no legend');
+  assert.equal(await compactChart.locator('.band-labels').isVisible(), false, 'Idle overview displays no legend');
   const compactDrawing = compactChart.locator('svg[role=img]');
   const plotBefore = await compactDrawing.getAttribute('viewBox');
   const compactProof = await compactDrawing.evaluate(svg => {
@@ -277,6 +277,8 @@ try {
   });
   assert(compactProof.fraction > .85, 'Compact graph must use almost all available width');
   await compactDrawing.hover();
+  await compactChart.locator('.band-labels').waitFor({ state: 'visible' });
+  assert.equal(await compactChart.locator('.legend-share,.legend-change').count(), 0, 'Normal hover legend shows only names and sizes');
   await compactChart.locator('.chart-labels').waitFor({ state: 'visible' });
   const overlayProof = await compactChart.evaluate(chart => {
     const plot = chart.querySelector('svg[role=img]').getBoundingClientRect(), labels = chart.querySelector('.chart-labels').getBoundingClientRect();
@@ -297,6 +299,11 @@ try {
   await compactChart.locator('.chart-labels').waitFor({ state: 'visible' });
   await page.touchscreen.tap(labelToggleBounds.x + labelToggleBounds.width / 2, labelToggleBounds.y + labelToggleBounds.height / 2);
   await compactChart.locator('.chart-labels').waitFor({ state: 'hidden' });
+  const selectedBeforeInfoEnter = (await view()).selected?.id;
+  await compactChart.locator('.chart-label-toggle').focus(); await page.keyboard.press('Enter');
+  await compactChart.locator('.chart-labels').waitFor({ state: 'visible' });
+  assert.equal((await view()).selected?.id, selectedBeforeInfoEnter, 'Enter activates the focused info button instead of process navigation');
+  await page.keyboard.press('Enter'); await compactChart.locator('.chart-labels').waitFor({ state: 'hidden' });
   check('585x774 charts reveal labels by hover, keyboard or tap without shrinking or obstructing the plot', { ...compactProof, ...overlayProof });
   const historyDrawing = page.locator('.inspector-scroll .memory-chart > svg[role=img]');
   await historyDrawing.scrollIntoViewIfNeeded(); await historyDrawing.hover();
@@ -541,6 +548,52 @@ try {
   await toggle('Selected history metric', chartBefore.settings.metric === 'private_commit' ? 'Private commit' : 'Private working set').check();
   await until(async () => (await view()).settings.metric === chartBefore.settings.metric, 'Restore metric after inspector proof');
   check('Inspector summary follows selected metric and historical chart sample, then restores latest');
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');
+  await until(async () => (await view()).settings.ui_zoom === 100, 'Band navigation reference scale');
+  const beforeBand = await view();
+  await page.getByRole('group', { name: 'Group by', exact: true }).getByRole('radio', { name: 'Path', exact: true }).check();
+  await until(async () => (await view()).settings.grouping === 'path', 'Band navigation begins in another grouping');
+  await page.getByRole('searchbox', { name: 'Filter:', exact: true }).fill('mm021-nothing-matches');
+  await until(async () => (await view()).settings.filter === 'mm021-nothing-matches', 'Band navigation begins with a hidden target');
+  await page.mouse.move(0, 0); await page.locator('.system-summary').click();
+  const navigationChart = page.locator('.overview-panel .memory-chart');
+  const bandTarget = await navigationChart.locator('.chart-areas path[data-process-id]').evaluateAll(paths => {
+    for (const path of paths) {
+      const box = path.getBBox(), matrix = path.getScreenCTM();
+      for (const fraction of [.8, .6, .4, .95]) for (let row = 1; row < 60; row++) {
+        const point = new DOMPoint(box.x + box.width * fraction, box.y + box.height * row / 60);
+        if (!path.isPointInFill(point)) continue;
+        const screen = point.matrixTransform(matrix);
+        if (document.elementFromPoint(screen.x, screen.y) === path) return { x: screen.x, y: screen.y, id: path.getAttribute('data-process-id') };
+      }
+    }
+    return null;
+  });
+  assert(bandTarget, 'A real rendered program band offers a double-click target');
+  await page.mouse.dblclick(bandTarget.x, bandTarget.y);
+  await until(async () => { const value = await view(); return value.selected?.id === bandTarget.id && value.settings.grouping === 'name' && !value.settings.filter; }, 'Band selects its program across grouping/filter');
+  const openedBand = await view();
+  assert.equal(openedBand.paused, beforeBand.paused);
+  assert.equal(openedBand.settings.metric, beforeBand.settings.metric); assert.equal(openedBand.settings.overview_range, beforeBand.settings.overview_range);
+  await grid.locator(`[data-row-id="${bandTarget.id}"][aria-selected=true]`).waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#selected-title').innerText(), openedBand.selected.name);
+  await page.getByRole('button', { name: 'Expand overview', exact: true }).click();
+  const legendTarget = navigationChart.locator('.band-label[data-process-id]').first();
+  const legendId = await legendTarget.getAttribute('data-process-id');
+  await legendTarget.dblclick();
+  await until(async () => !(await page.locator('.dashboard').evaluate(root => root.classList.contains('overview-expanded'))) && (await view()).selected?.id === legendId, 'Expanded legend returns to process inspector');
+  await navigationChart.focus();
+  const keyboardIds = await navigationChart.locator('.chart-areas path[data-process-id]').evaluateAll(paths => paths.map(path => path.getAttribute('data-process-id')));
+  const keyboardId = keyboardIds[Math.min(1, keyboardIds.length - 1)];
+  await navigationChart.press('ArrowUp');
+  const revisionBeforeEnter = (await view()).revision;
+  await navigationChart.press('Enter');
+  await until(async () => { const value = await view(); return value.revision > revisionBeforeEnter && value.selected?.id === keyboardId; }, 'Keyboard opens selected named band');
+  await grid.locator(`[data-row-id="${keyboardId}"][aria-selected=true]`).waitFor({ state: 'visible' });
+  await page.screenshot({ path: path.join(output, 'band-navigation.png') });
+  check('Real band double-click, expanded legend and keyboard navigate to a visible program without changing chart settings');
 
 
   await page.getByRole('combobox', { name: /View scale/ }).selectOption('100');

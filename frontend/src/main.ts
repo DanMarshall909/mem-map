@@ -15,7 +15,7 @@ client = new ViewClient<View, Action>({
   dispatch: action => invoke<View>('dispatch', { action }),
   copyPaths: () => invoke<string>('copy_paths'),
   copySnapshot: () => invoke<string>('copy_snapshot'),
-}, (view, action) => dashboard.update(view, action?.type === 'show_selected_processes' || action?.type === 'select_process_parent'), error => dashboard.showNotice(error));
+}, (view, action) => dashboard.update(view, action?.type === 'show_selected_processes' || action?.type === 'select_process_parent' || action?.type === 'open_overview_process'), error => dashboard.showNotice(error));
 mount.append(dashboard.element);
 void client.refresh();
 const polling = setInterval(() => { void client.refresh(); }, 500);

@@ -487,9 +487,9 @@ Use the following order from bottom to top:
 
 ChatGPT.exe, node.exe and codex.exe are examples from the image. Populate the labels from the data.
 
-For the initial implementation, select three prominent executable groups after the first collection cycle and keep those identities, colours and stack positions fixed for the recording session. Include every other measured process through **Other processes**.
+For the initial implementation, select up to twelve prominent executable groups after the first collection cycle and keep those identities, colours and stack positions fixed for the recording session. Include every other measured process through **Other processes**.
 
-This preserves the overall total while keeping the legend readable. Table sorting, filtering and selection should not silently replace chart bands.
+This preserves the overall total while keeping the legend readable. Display as many named programs as chart width, height and text scale permit, folding undisplayed allocations into Other processes with exact bytes and matching comparison baselines. Resizing restores the same identities and colors; unknown attribution remains unknown. Table sorting, filtering and selection should not silently replace the retained band pool.
 
 ### Memory accounting
 
@@ -534,9 +534,11 @@ annotations appear on hover, keyboard focus or an info-button tap.
 
 ### Legend and interaction
 
-Show the top-left, single-line legend only when the overview is expanded, in the same order as its layers. Align figures in columns, cap names at 20 characters and retain full names in help. There is no sidebar or below-plot legend. Calculate change percentages using valid retained baselines independently of the visible plot window: last valid attributed sample at/before the comparison target, at most four seconds old. Never invent an early-session or missing baseline. Keep visible samples and keyboard navigation scoped to the chosen plot range.
+Show a top-left, single-line detailed legend when the overview is expanded, in the same order as its layers. In the normal overview, show only names and memory sizes on hover, keyboard focus or compact info toggle; hide it when inspection is dismissed. Keep this brief legend click-through so it cannot block band navigation. Align figures in columns, cap names at 20 characters and retain full names in help. There is no sidebar or below-plot legend. Calculate change percentages using valid retained baselines independently of the visible plot window: last valid attributed sample at/before the comparison target, at most four seconds old. Never invent an early-session or missing baseline. Keep visible samples and keyboard navigation scoped to the chosen plot range.
 
-Determine compactness from each chart's own width relative to UI text scale. At compact widths, reveal axis annotations and concise sample help on hover, keyboard focus or an info-button tap. The expanded legend remains an overlay; the sidebar never displays it. A viewport-clamped sample-help popover sits beside the plot when possible without changing plot/data coordinates or blocking plot input. Escape, outside pointer input and leaving by keyboard dismiss this help. Preserve keyboard sample/band navigation and accessible precise descriptions without a visible Chart data disclosure or visible previous/next sample buttons.
+Determine compactness from each chart's own width relative to UI text scale. At compact widths, reveal axis annotations and concise sample help on hover, keyboard focus or an info-button tap. Both legends remain overlays without reducing the plotting area; the expanded legend retains shares and change percentages. A viewport-clamped sample-help popover sits beside the plot when possible without changing plot/data coordinates or blocking plot input. Escape, outside pointer input and leaving by keyboard dismiss this help. Preserve keyboard sample/band navigation and accessible precise descriptions without a visible Chart data disclosure or visible previous/next sample buttons.
+
+Double-clicking a named band or pressing Enter on the selected chart band opens its program group in the process table and inspector, leaving expanded overview when necessary. Clear a hiding filter, use Name grouping and reveal the selected row; preserve pause, chart metrics/ranges and density. Enable exited rows only when the named target requires it. Expanded legend rows offer the same navigation. Residual bands have no individual program target; invalid targets reject without partial mutation.
 
 Hovering a band or selecting it with Up/Down while the chart is focused should expose precise accessible/help information:
 

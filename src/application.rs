@@ -267,6 +267,7 @@ pub enum Action {
     SetChangeSeconds { value: u32 },
     SortBy { column: String },
     SelectRow { id: String },
+    OpenOverviewProcess { id: String },
     ToggleExpanded { id: String },
     ShowSelectedProcesses,
     SelectProcessParent,
@@ -850,6 +851,23 @@ impl Application {
         // Validate before changing any state, so rejected commands preserve the projection.
         let target = match &action {
             Action::SelectRow { id } => Some(self.resolve_id(id)?),
+            Action::OpenOverviewProcess { id } => {
+                let selection = self.resolve_id(id)?;
+                if !matches!(&selection, Selection::Name(name) if self.shown().named_bands.contains(name))
+                {
+                    return Err("Select a named overview program band".into());
+                }
+                // Stable band IDs can outlive retained tracks. A cached
+                // summary without members cannot create a navigable name row.
+                if dashboard::summary(self.shown(), &selection, self.change_seconds)
+                    .is_none_or(|summary| summary.members.is_empty())
+                {
+                    return Err(
+                        "This overview program is no longer available in the process table".into(),
+                    );
+                }
+                Some(selection)
+            }
             Action::ToggleExpanded { id } => {
                 let selection = self.resolve_id(id)?;
                 if !self
@@ -952,6 +970,20 @@ impl Application {
                         !matches!(column, SortColumn::Name | SortColumn::Pid)
                     },
                 };
+            }
+            Action::OpenOverviewProcess { .. } => {
+                let selection = target.expect("overview program validated");
+                let exited = dashboard::summary(self.shown(), &selection, self.change_seconds)
+                    .is_some_and(|summary| summary.lifecycle == dashboard::Lifecycle::Exited);
+                self.grouping = Grouping::Name;
+                self.prefs.grouping = "name".into();
+                self.query.clear();
+                if exited {
+                    self.show_exited = true;
+                }
+                self.selected = Some(selection.clone());
+                self.reveal_row_id = Some(self.id_for(&selection));
+                explicit = true;
             }
             Action::SelectRow { .. } => {
                 self.selected = target;
@@ -1160,6 +1192,233 @@ mod tests {
             ..Default::default()
         }
     }
+    fn open_band(app: &mut Application, id: &str) -> Result<(), String> {
+        let action = serde_json::from_value::<Action>(
+            serde_json::json!({"type":"open_overview_process", "id":id}),
+        )
+        .expect("Band navigation action must exist");
+        app.dispatch(action)
+    }
+    #[test]
+    fn band_navigation_reveals_the_named_group_from_a_paused_filtered_held_table() {
+        let mut app = Application::new(Preferences::default());
+        app.ingest(frame(
+            0,
+            vec![process(1, "Alpha.exe", 800), process(2, "Beta.exe", 400)],
+        ));
+        let id = app
+            .view()
+            .overview
+            .layers
+            .iter()
+            .find(|l| l.name == "Beta.exe")
+            .unwrap()
+            .id
+            .clone()
+            .unwrap();
+        app.dispatch(Action::SetGrouping {
+            value: "process".into(),
+        })
+        .unwrap();
+        app.dispatch(Action::SetFilter {
+            value: "no match".into(),
+        })
+        .unwrap();
+        app.dispatch(Action::SetMetric {
+            value: "private_commit".into(),
+        })
+        .unwrap();
+        app.dispatch(Action::SetOverviewMetric {
+            value: "private_commit".into(),
+        })
+        .unwrap();
+        app.dispatch(Action::SetOverviewRange { seconds: Some(300) })
+            .unwrap();
+        app.dispatch(Action::SetCompact { value: false }).unwrap();
+        app.dispatch(Action::SetTableInteractionHeld { value: true })
+            .unwrap();
+        app.dispatch(Action::SetPaused { value: true }).unwrap();
+        app.ingest(frame(2, vec![process(9, "LiveOnly.exe", 900)]));
+        open_band(&mut app, &id).unwrap();
+        let view = app.view();
+        assert_eq!(view.settings.grouping, "name");
+        assert_eq!(app.prefs.grouping, "name");
+        assert!(view.settings.filter.is_empty());
+        assert_eq!(view.table.selected_id.as_ref(), Some(&id));
+        assert_eq!(view.reveal_row_id, Some(id.clone()));
+        assert!(
+            view.table
+                .rows
+                .iter()
+                .any(|row| row.id == id && row.name == "Beta.exe")
+        );
+        assert!(!view.table.order_held);
+        assert!(!view.settings.show_exited);
+        assert!(view.paused);
+        assert_eq!(view.displayed_at, 0);
+        assert_eq!(view.live_at, 2);
+        assert_eq!(view.settings.metric, "private_commit");
+        assert_eq!(view.settings.overview_metric, "private_commit");
+        assert_eq!(view.settings.overview_range, Some(300));
+        assert!(!view.settings.compact);
+    }
+    #[test]
+    fn band_navigation_rejects_unknown_non_band_and_process_ids_without_effect() {
+        let mut app = Application::new(Preferences::default());
+        app.ingest(frame(
+            0,
+            (0..14)
+                .map(|i| process(i + 1, &format!("Program{i:02}.exe"), 1000 - i as u64))
+                .collect(),
+        ));
+        let non_band = app
+            .view()
+            .table
+            .rows
+            .iter()
+            .find(|row| row.name == "Program13.exe")
+            .unwrap()
+            .id
+            .clone();
+        app.dispatch(Action::SetGrouping {
+            value: "process".into(),
+        })
+        .unwrap();
+        let process_id = app
+            .view()
+            .table
+            .rows
+            .iter()
+            .find(|row| row.pid.is_some())
+            .unwrap()
+            .id
+            .clone();
+        for id in [
+            "unknown".to_string(),
+            "Other processes".into(),
+            non_band,
+            process_id,
+        ] {
+            let before = serde_json::to_value(app.view()).unwrap();
+            let prefs = app.preferences().clone();
+            assert!(open_band(&mut app, &id).is_err());
+            assert_eq!(serde_json::to_value(app.view()).unwrap(), before);
+            assert_eq!(app.preferences(), prefs);
+        }
+    }
+    #[test]
+    fn band_navigation_rejects_expired_unprotected_pool_identity_atomically() {
+        let mut app = Application::new(Preferences::default());
+        app.ingest(frame(
+            0,
+            vec![process(1, "Anchor.exe", 999), process(2, "Gone.exe", 123)],
+        ));
+        let target = app
+            .view()
+            .overview
+            .layers
+            .iter()
+            .find(|layer| layer.name == "Gone.exe")
+            .unwrap()
+            .id
+            .clone()
+            .unwrap();
+        let anchor = app
+            .view()
+            .table
+            .rows
+            .iter()
+            .find(|row| row.name == "Anchor.exe")
+            .unwrap()
+            .id
+            .clone();
+        app.dispatch(Action::SelectRow { id: anchor }).unwrap();
+        app.ingest(frame(2, vec![process(1, "Anchor.exe", 999)]));
+        app.ingest(frame(
+            crate::model::HISTORY_SECONDS + 4,
+            vec![process(1, "Anchor.exe", 999)],
+        ));
+        assert!(app.shown().named_bands.contains(&"gone.exe".into()));
+        assert!(
+            dashboard::summary(
+                app.shown(),
+                &Selection::Name("gone.exe".into()),
+                app.change_seconds
+            )
+            .is_none(),
+            "Regression requires an expired, unprotected identity rather than merely an exited retained track"
+        );
+        assert!(
+            app.view()
+                .overview
+                .layers
+                .iter()
+                .any(|layer| layer.id.as_ref() == Some(&target)),
+            "Stable chart pool still projects the target identity"
+        );
+        let before = serde_json::to_value(app.view()).unwrap();
+        let prefs = app.preferences();
+        assert!(
+            open_band(&mut app, &target).is_err(),
+            "A stable pool identity cannot promise a nonexistent table row"
+        );
+        assert_eq!(serde_json::to_value(app.view()).unwrap(), before);
+        assert_eq!(app.preferences(), prefs);
+    }
+    #[test]
+    fn band_navigation_rejects_cached_identity_without_any_row_member() {
+        let mut app = Application::new(Preferences::default());
+        app.ingest(frame(0, vec![process(2, "Gone.exe", 123)]));
+        let target = app
+            .view()
+            .overview
+            .layers
+            .iter()
+            .find(|layer| layer.name == "Gone.exe")
+            .unwrap()
+            .id
+            .clone()
+            .unwrap();
+        app.ingest(frame(2, vec![]));
+        // Cached identity may outlive detailed tracks. It supports historical
+        // inspection but cannot itself generate a tree_rows root.
+        app.history.tracks.clear();
+        app.project();
+        let summary = dashboard::summary(
+            app.shown(),
+            &Selection::Name("gone.exe".into()),
+            app.change_seconds,
+        )
+        .unwrap();
+        assert!(summary.members.is_empty());
+        let before = serde_json::to_value(app.view()).unwrap();
+        let prefs = app.preferences();
+        assert!(open_band(&mut app, &target).is_err());
+        assert_eq!(serde_json::to_value(app.view()).unwrap(), before);
+        assert_eq!(app.preferences(), prefs);
+    }
+    #[test]
+    fn band_navigation_can_reveal_an_exited_retained_named_band() {
+        let mut app = Application::new(Preferences::default());
+        app.ingest(frame(0, vec![process(1, "Gone.exe", 123)]));
+        let id = app
+            .view()
+            .overview
+            .layers
+            .iter()
+            .find(|l| l.name == "Gone.exe")
+            .unwrap()
+            .id
+            .clone()
+            .unwrap();
+        app.ingest(frame(2, vec![]));
+        assert!(!app.view().settings.show_exited);
+        open_band(&mut app, &id).unwrap();
+        let view = app.view();
+        assert!(view.settings.show_exited);
+        assert_eq!(view.reveal_row_id, Some(id));
+        assert_eq!(view.selected.unwrap().lifecycle, "exited");
+    }
     #[test]
     fn inspector_context_is_metric_specific_historical_and_independent_of_viewport() {
         let mut app = Application::new(Preferences::default());
@@ -1268,11 +1527,11 @@ mod tests {
         assert_eq!(sample["used"], "102");
         assert_eq!(
             sample["layers"],
-            serde_json::json!(["31", "19", "23", "29"])
+            serde_json::json!(["0", "19", "23", "29", "31"])
         );
         assert_eq!(
             sample["baseline"]["layers"],
-            serde_json::json!(["17", "7", "11", "13"])
+            serde_json::json!(["0", "7", "11", "13", "17"])
         );
         app.dispatch(Action::SetFilter {
             value: "A.exe".into(),

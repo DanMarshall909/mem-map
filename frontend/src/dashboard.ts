@@ -68,7 +68,7 @@ export class Dashboard {
   private lastNotice = '';
   constructor(send: (action: Action) => void, native: (action: 'copy' | 'snapshot') => void) {
     this.send = send; this.table = new ProcessTreeGrid(send);
-    this.overview = new MemoryChart('overview', send); this.history = new MemoryChart('history', send, sample => this.updateInspection(sample));
+    this.overview = new MemoryChart('overview', action => { if (action.type === 'open_overview_process') this.setOverviewExpanded(false); send(action); }); this.history = new MemoryChart('history', send, sample => this.updateInspection(sample));
     const summary = el('div', 'header-summary');
     this.progress.max = 100; this.progress.setAttribute('aria-label', 'System physical memory used');
     summary.append(this.system, this.progress, this.available, this.live);

@@ -64,7 +64,7 @@ test('resizing between minimum and roomy windows adapts flow using the current t
 
 test('the overview honors its explicit plot height while selected history retains its minimum', () => {
   const window = dom(1280, 800); const dashboard = new Dashboard(() => {}, () => {}); document.body.append(dashboard.element);
-  Object.defineProperty(dashboard.element.querySelector('.right-pane'), 'clientHeight', { value: 300 });
+  Object.defineProperty(dashboard.element.querySelector('.overview-panel'), 'clientHeight', { value: 100 });
   dashboard.update(fixture());
   const overview = dashboard.element.querySelector<SVGSVGElement>('.overview-panel .memory-chart > svg')!;
   const history = dashboard.inspector.querySelector<SVGSVGElement>('.memory-chart > svg')!;

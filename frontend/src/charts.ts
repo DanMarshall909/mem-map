@@ -232,12 +232,11 @@ export class MemoryChart {
     let height = 220 * scale;
     if (this.kind === 'overview') {
       const panel = this.element.parentElement;
-      const pane = panel?.parentElement;
       // Legend and sample help float over/outside the plot; only the panel
       // heading and padding consume height.
       const overhead = (panel?.querySelector('.panel-heading')?.getBoundingClientRect().height ?? 0) + 28 * scale;
-      height = this.expanded ? Math.max(112 * scale, (panel?.clientHeight || 760 * scale) - overhead)
-        : this.element.closest('.reflow') ? 200 * scale : Math.max((this.compact ? 168 : 112) * scale, Math.min((this.compact ? 360 : 200) * scale, (pane?.clientHeight || 760 * scale) * .45 - overhead));
+      height = !this.expanded && this.element.closest('.reflow') ? 200 * scale
+        : Math.max((this.compact && !this.expanded ? 168 : 112) * scale, (panel?.clientHeight || 260 * scale) - overhead);
     }
     const left = (this.compact ? 12 : 52) * scale, right = width - (this.compact ? 12 : 18) * scale, top = 25 * scale, bottom = height - 34 * scale;
     this.plot = { width, left, right, top, bottom, maximum: Number(view.overview.capacity) || 1 };

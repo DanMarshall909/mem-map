@@ -58,7 +58,7 @@ test('main overview uses the available panel height and preserves its range cont
   panelHeight = 420; view.settings.overview_range = 300; view.settings.ui_zoom = 125; dashboard.update(view);
   assert(parseFloat(drawing.style.height) > 300, 'Main-view sizing follows the current available panel and text scale');
   assert(control('Back to processes'));
-  control('Back to processes')!.click(); assert(parseFloat(drawing.style.height) <= 250, 'The restored sidebar uses its normal height budget');
+  control('Back to processes')!.click(); assert(parseFloat(drawing.style.height) <= panelHeight, 'The restored sidebar plot fits its allocated panel');
   window.happyDOM.abort();
 });
 

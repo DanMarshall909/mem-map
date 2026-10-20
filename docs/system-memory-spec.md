@@ -20,8 +20,8 @@ Use approximately 16 px outer padding, 8–12 px between panels, and 12–16 px 
 
 The right pane should contain two vertically stacked panels:
 
-1. **Overall memory usage**, sized to its heading and sidebar chart.
-2. **Selected-process inspector**, using the remaining height. Avoid reserving empty overview space while the inspector needs to scroll; retain inspector scrolling when its content cannot fit.
+1. **Overall memory usage**, growing its graph to use the height left after process details.
+2. **Selected-process inspector**, sized to its content rather than stretched into unused space. Keep a usable overview minimum and retain inspector scrolling when its content cannot fit.
 
 When the window becomes smaller, allow toolbar wrapping, table scrolling and inspector scrolling. Preserve readable text and exact numeric values. Reduce decorative bar space before clipping numbers.
 

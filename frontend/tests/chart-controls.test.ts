@@ -14,6 +14,26 @@ function setup() {
   dashboard.update(view);
   return { window, view, calls, dashboard, panel };
 }
+
+test('change interval toggles send their duration and follow toggle stays synchronized with navigation', () => {
+  const { window, view, dashboard, calls } = setup();
+  const interval = [...dashboard.element.querySelectorAll('fieldset')].find(el => el.querySelector('legend')?.textContent === 'Change over');
+  assert(interval, 'Change over exposes the available durations together');
+  for (const seconds of [60, 300, 900, 1800]) {
+    const choice = interval.querySelector<HTMLInputElement>(`input[value="${seconds}"]`)!;
+    choice.click(); assert.deepEqual(calls.at(-1), { type: 'set_change_seconds', value: seconds });
+    view.settings.change_seconds = seconds; dashboard.update(view);
+    assert.equal(interval.querySelector<HTMLInputElement>('input:checked')!.value, String(seconds));
+    assert.equal(interval.querySelectorAll('input:checked').length, 1);
+  }
+  const follow = dashboard.inspector.querySelector<HTMLInputElement>('input[aria-label="Follow latest"]')!;
+  assert(follow); assert.equal(follow.checked, true);
+  follow.click(); assert.deepEqual(calls.at(-1), { type: 'set_follow', value: false });
+  view.history_viewport.follow = false; dashboard.update(view); assert.equal(follow.checked, false);
+  follow.click(); assert.deepEqual(calls.at(-1), { type: 'set_follow', value: true });
+  view.history_viewport.follow = true; dashboard.update(view); assert.equal(follow.checked, true);
+  window.happyDOM.abort();
+});
 test('commit overview uses commit scale and shares while the header remains physical', () => {
   const { window, view, dashboard, panel } = setup();
   view.settings.overview_metric = 'private_commit'; view.overview.capacity = '0';

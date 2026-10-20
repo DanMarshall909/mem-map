@@ -31,7 +31,7 @@ export class Dashboard {
   private group: ReturnType<typeof radios<Grouping>>;
   private exited: ReturnType<typeof checkbox>;
   private compact: ReturnType<typeof checkbox>;
-  private changeChoice: ReturnType<typeof select>;
+  private changeChoice: ReturnType<typeof radios<string>>;
   private overviewRange: ReturnType<typeof radios<string>>;
   private metric: ReturnType<typeof radios<Metric>>;
   private overviewMetric: ReturnType<typeof radios<Metric>>;
@@ -92,8 +92,9 @@ export class Dashboard {
     filterLabel.append(filterCaption, this.filter, this.clear);
     this.exited = checkbox('Show exited processes', value => send({ type: 'set_show_exited', value }), 'exited');
     this.compact = checkbox('Compact rows', value => send({ type: 'set_compact', value }), 'compact');
-    this.changeChoice = select('Change over:', [['60', '1 minute'], ['300', '5 minutes'], ['900', '15 minutes'], ['1800', '30 minutes']], value => send({ type: 'set_change_seconds', value: Number(value) }), 'clock');
-    const options = el('div', 'toolbar-options'); options.append(this.exited.label, this.compact.label, this.changeChoice.label);
+    this.changeChoice = radios('Change over', [['60', '1m'], ['300', '5m'], ['900', '15m'], ['1800', '30m']], value => send({ type: 'set_change_seconds', value: Number(value) }));
+    this.changeChoice.group.title = 'Change over'; this.changeChoice.group.querySelector('legend')!.classList.add('sr-only');
+    const options = el('div', 'toolbar-options'); options.append(this.exited.label, this.compact.label, this.changeChoice.group);
     const toolbarRow = el('div', 'toolbar-row'); toolbarRow.append(this.group.group, options);
     toolbar.append(toolbarRow, filterLabel); left.append(toolbar, this.table.element, this.tableStatus, this.barsHelp);
     const right = el('div', 'right-pane'); const overviewPanel = el('section', 'panel overview-panel');
@@ -123,7 +124,7 @@ export class Dashboard {
     this.axis = radios('Selected history Y-axis', [['zero', 'From zero'], ['fit', 'Fit values']], value => send({ type: 'set_from_zero', value: value === 'zero' }), { zero: 'zero', fit: 'fit' });
     for (const controls of [this.metric, this.axis, this.overviewMetric, this.overviewAxis]) controls.group.querySelector('legend')!.classList.add('sr-only');
     this.reset = iconButton('Reset view', 'reset', () => send({ type: 'reset_history_view' }));
-    this.follow = checkbox('Follow latest', value => send({ type: 'set_follow', value })); const navigation = el('div', 'history-navigation'); navigation.append(this.reset, this.follow.label);
+    this.follow = checkbox('Follow latest', value => send({ type: 'set_follow', value }), 'follow'); const navigation = el('div', 'history-navigation'); navigation.append(this.reset, this.follow.label);
     const historyControls = el('div', 'history-controls'); historyControls.append(this.metric.group, this.ranges.group, this.axis.group, navigation);
     this.inspector.append(inspectorHeading, this.hiddenSelection, pathRow, this.paths, summaryValues, this.coverage, historyControls, this.history.element);
     right.append(overviewPanel, this.inspector); this.splitter.tabIndex = 0; this.splitter.setAttribute('role', 'separator'); this.splitter.setAttribute('aria-label', 'Resize process and memory panes'); this.splitter.setAttribute('aria-orientation', 'vertical');
@@ -164,7 +165,7 @@ export class Dashboard {
     this.live.title = `Last collection ${view.collection.age_seconds}s ago`; setIcon(this.pause, view.paused ? 'Resume display' : 'Pause display', view.paused ? 'play' : 'pause');
     this.group.set(view.settings.grouping); this.exited.input.checked = view.settings.show_exited; this.compact.input.checked = view.settings.compact;
     if (!this.editingFilter && document.activeElement !== this.filter) this.filter.value = view.settings.filter;
-    this.clear.hidden = !this.filter.value; this.changeChoice.input.value = String(view.settings.change_seconds);
+    this.clear.hidden = !this.filter.value; this.changeChoice.set(String(view.settings.change_seconds));
     this.overviewRange.set(view.settings.overview_range?.toString() ?? 'all'); this.metric.set(view.settings.metric); this.overviewMetric.set(view.settings.overview_metric); this.overviewAxis.set(view.settings.overview_from_zero ? 'zero' : 'fit');
     this.ranges.set(view.settings.history_range?.toString() ?? 'all'); this.axis.set(view.settings.from_zero ? 'zero' : 'fit');
     this.follow.input.checked = view.history_viewport.follow; this.reset.disabled = !view.history_viewport.reset_enabled;

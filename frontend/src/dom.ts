@@ -24,7 +24,7 @@ const icons = {
   reset: 'M3 10a9 9 0 1 1 2 8M3 3v7h7',
   exited: 'M10 3H4v18h6M14 7l5 5-5 5M8 12h11',
   compact: 'M4 5h16M4 10h16M4 15h16M4 20h16',
-  clock: 'M12 8v5l3 2M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
+  follow: 'M3 12h14m-5-5 5 5-5 5M21 4v16',
 } as const;
 function createIcon(icon: keyof typeof icons): SVGSVGElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -37,16 +37,14 @@ export function setIcon(node: HTMLButtonElement, label: string, icon: keyof type
 export function iconButton(label: string, icon: keyof typeof icons, action: () => void, className = ''): HTMLButtonElement {
   const node = button('', action, `icon-button ${className}`); setIcon(node, label, icon); return node;
 }
-export function checkbox(label: string, action: (value: boolean) => void, icon?: keyof typeof icons): { label: HTMLLabelElement; input: HTMLInputElement } {
-  const node = el('label', 'check'); const input = el('input'); input.type = 'checkbox';
+export function checkbox(label: string, action: (value: boolean) => void, icon: keyof typeof icons): { label: HTMLLabelElement; input: HTMLInputElement } {
+  const node = el('label', 'check icon-check'); const input = el('input'); input.type = 'checkbox';
   input.addEventListener('change', () => action(input.checked));
-  if (icon) { node.classList.add('icon-check'); node.title = label; input.setAttribute('aria-label', label); const display = el('span'); display.append(createIcon(icon)); node.append(input, display); }
-  else node.append(input, document.createTextNode(label));
+  node.title = label; input.setAttribute('aria-label', label); const display = el('span'); display.append(createIcon(icon)); node.append(input, display);
   return { label: node, input };
 }
-export function select(label: string, choices: [string, string][], action: (value: string) => void, icon?: keyof typeof icons): { label: HTMLLabelElement; input: HTMLSelectElement } {
+export function select(label: string, choices: [string, string][], action: (value: string) => void): { label: HTMLLabelElement; input: HTMLSelectElement } {
   const node = el('label', 'field'); const caption = el('span', '', label); const input = el('select');
-  if (icon) { node.title = label.replace(/:$/, ''); caption.className = 'field-icon'; caption.replaceChildren(createIcon(icon)); caption.setAttribute('aria-hidden', 'true'); }
   input.setAttribute('aria-label', label.replace(/:$/, ''));
   for (const [value, name] of choices) { const option = el('option', '', name); option.value = value; input.append(option); }
   input.addEventListener('change', () => action(input.value)); node.append(caption, input); return { label: node, input };

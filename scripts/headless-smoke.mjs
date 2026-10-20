@@ -174,9 +174,22 @@ try {
   const nameGrouping = page.getByRole('radio', { name: 'Name', exact: true });
   await nameGrouping.focus(); await nameGrouping.press('ArrowRight');
   await until(async () => (await view()).settings.grouping === 'path' && await page.getByRole('radio', {name:'Path',exact:true}).isChecked(), 'native arrow-key grouping');
-  assert(await page.locator('.toolbar .segments label').evaluateAll(labels => labels.every(label => label.title && !label.textContent && label.querySelector('svg[aria-hidden=true]'))));
+  assert(await page.getByRole('group', {name:'Group by',exact:true}).locator('label').evaluateAll(labels => labels.every(label => label.title && !label.textContent && label.querySelector('svg[aria-hidden=true]'))));
   await nameGrouping.click(); await until(async () => (await view()).settings.grouping === 'name', 'restore name grouping');
   check('All five icon groupings retain tooltips, radio semantics and native arrow-key commands');
+  const intervals = page.getByRole('group', {name:'Change over',exact:true});
+  for (const seconds of [60,300,900,1800]) {
+    await intervals.getByRole('radio', {name:`${seconds / 60}m`,exact:true}).check();
+    await until(async () => (await view()).settings.change_seconds === seconds, 'change interval');
+  }
+  await intervals.getByRole('radio', {name:'5m',exact:true}).press('ArrowRight');
+  await until(async () => (await view()).settings.change_seconds === 900, 'native interval arrow key');
+  await intervals.getByRole('radio', {name:'5m',exact:true}).check();
+  await until(async () => (await view()).settings.change_seconds === 300, 'restore interval');
+  const follow = page.getByRole('checkbox', {name:'Follow latest',exact:true});
+  await follow.uncheck(); await until(async () => !(await view()).history_viewport.follow, 'follow off');
+  await follow.press('Space'); await until(async () => (await view()).history_viewport.follow, 'follow native keyboard on');
+  check('Change interval segments and Follow latest icon preserve native keyboard commands and backend state');
   const dpr = await page.evaluate(() => devicePixelRatio);
   const layout = async () => page.evaluate(() => {
     const rect = selector => { const el = document.querySelector(selector), box = el.getBoundingClientRect(); return { top: box.top, bottom: box.bottom, height: el.clientHeight, width: el.clientWidth }; };

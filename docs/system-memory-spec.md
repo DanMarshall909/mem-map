@@ -260,10 +260,10 @@ Changing density must preserve selection, expansion and scroll position.
 
 Move **Growth over** into this toolbar and rename it:
 
-Use a clock icon with a **Change over** accessible name and tooltip; show the
-selected duration, initially **5 minutes**.
+Use a **Change over** segmented toggle group with an accessible name and tooltip;
+show the selected duration, initially **5m**.
 
-Use a dropdown. A practical initial set is 1, 5, 15 and 30 minutes, subject to retained history.
+Offer **1m**, **5m**, **15m** and **30m** together, subject to retained history.
 
 This setting controls the table’s change column and the inspector’s change value. Update both labels when it changes.
 
@@ -648,7 +648,7 @@ Replace the ambiguous RAM and plus/minus control row with explicit controls.
 | **View last** segmented control | 30m | Use the same compact 5m/15m/30m/All toggles as overall memory; retain the accessible group name |
 | **Y-axis** icon toggles | From zero | Choose From zero or Fit values independently on each chart, with names and tooltips |
 | **Reset view** button | Enabled after navigation | Remove manual pan/zoom, preserve selected range and metric, and re-enable Follow latest |
-| **Follow latest** checkbox | Checked | Keep the chart attached to the newest displayed sample |
+| **Follow latest** icon toggle | Checked | Keep the chart attached to the newest displayed sample; retain native checkbox semantics, accessible name, tooltip and visible selected/focus states |
 
 Use orange fill for selected segmented options.
 

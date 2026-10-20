@@ -113,7 +113,7 @@ test('repeated live frames retain inspector scroll, focused control and selected
   for (let i = 1; i <= 20; i++) { const frame = structuredClone(view); frame.revision = i + 1; frame.live_at += i * 2; frame.history_viewport.follow = false; frame.history_viewport.manual_end = 600; frame.history_viewport.reset_enabled = true; dashboard.update(frame); }
   assert.equal(dashboard.inspector, inspector); assert.equal(inspector.scrollTop, 233); assert.equal(document.activeElement, metric);
   assert.equal(inspector.querySelector('fieldset'), ranges); assert.equal(dashboard.element.querySelectorAll('.inspector-scroll').length, 1);
-  const follow = [...inspector.querySelectorAll('input')].find(input => input.parentElement?.textContent === 'Follow latest')!; assert.equal(follow.checked, false);
+  const follow = inspector.querySelector<HTMLInputElement>('input[aria-label="Follow latest"]')!; assert.equal(follow.checked, false);
   assert.match(inspector.textContent!, /Drag to pan.*Scroll to zoom/);
   const chartData = inspector.querySelector('.chart-data')!; chartData.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })); assert.match(chartData.textContent!, /5m ago/);
   window.happyDOM.abort();

@@ -4,6 +4,36 @@ import { Window } from 'happy-dom';
 import { Dashboard } from '../src/dashboard.ts';
 import { fixture } from './fixture.ts';
 
+test('inspector excludes the displayed program, tree or path using the current selection and global rules', t => {
+  const window = new Window(); t.after(() => window.happyDOM.abort());
+  Object.assign(globalThis, { document: window.document, window, HTMLElement: window.HTMLElement, Element: window.Element });
+  const calls: unknown[] = [], dashboard = new Dashboard(action => calls.push(action), () => {});
+  document.body.append(dashboard.element); const view = fixture(); dashboard.update(view);
+  const find = (label: string) => dashboard.inspector.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
+  const program = find('Exclude program'); assert(program, 'Details must offer one-click exclusion');
+  program.click(); assert.deepEqual(calls.pop(), {type:'add_exclusion', kind:'process', value:'worker.exe'});
+  view.settings.exclusions.rules.push({kind:'process',value:'worker.exe'}); dashboard.update(view);
+  assert(program.disabled, 'Already-applied rules must not be re-added');
+  view.settings.grouping = 'tree'; dashboard.update(view);
+  const tree = find('Exclude process tree')!; tree.click();
+  assert.deepEqual(calls.pop(), {type:'add_exclusion', kind:'tree', value:'worker.exe'});
+  view.settings.grouping = 'path'; dashboard.update(view);
+  find('Exclude executable path')!.click();
+  assert.deepEqual(calls.pop(), {type:'add_exclusion', kind:'path', value:'C:\\A\\worker.exe'});
+  view.settings.exclusions.rules.push({kind:'path',value:'c:\\a\\worker.exe'});
+  view.selected!.paths = ['C:/A/WORKER.exe']; view.selected!.paths_complete = false; dashboard.update(view);
+  assert(find('Exclude executable path')!.disabled, 'Known path rules normalize slashes/case even when other metadata is incomplete');
+  view.settings.exclusions.rules = [];
+  for (const paths of [[], ['C:\\A\\worker.exe', 'C:\\B\\worker.exe']]) {
+    view.selected!.paths = paths; dashboard.update(view); find('Exclude program')!.click();
+    assert.deepEqual(calls.pop(), {type:'add_exclusion',kind:'process',value:'worker.exe'});
+  }
+  view.selected = {...view.selected!, id:'next-selection', name:'next.exe', paths:[]}; dashboard.update(view);
+  find('Exclude program')!.click(); assert.deepEqual(calls.pop(), {type:'add_exclusion',kind:'process',value:'next.exe'});
+  view.selected.name = ''; dashboard.update(view); assert(find('Exclude program')!.disabled);
+  view.selected = null; dashboard.update(view); assert(find('Exclude program')!.disabled);
+});
+
 test('global exclusions can be managed from expanded overview with keyboard form submission and reversible categories', t => {
   const window = new Window(); t.after(() => window.happyDOM.abort());
   Object.assign(globalThis, { document: window.document, window, HTMLElement: window.HTMLElement, Element: window.Element });

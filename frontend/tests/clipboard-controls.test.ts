@@ -41,7 +41,7 @@ test('grouping icons preserve named radios, tooltips and grouping commands', () 
   for (const [value, name] of [['path', 'Path'], ['tree', 'Process tree'], ['process', 'Individual processes'], ['family', 'Family'], ['name', 'Name']]) {
     const radio = group.querySelector<HTMLInputElement>(`input[value=${value}]`)!;
     assert.equal(radio.getAttribute('aria-label'), name);
-    assert.equal(radio.parentElement!.title, name);
+    assert.equal(radio.parentElement!.title.split(':')[0], name, 'Tooltip identifies the control and may include explanatory text');
     assert.equal(radio.parentElement!.textContent, '', 'Only the icon is visible');
     const icon = radio.parentElement!.querySelector('svg'); assert(icon);
     assert.equal(icon.getAttribute('aria-hidden'), 'true'); shapes.push(icon.querySelector('path')!.getAttribute('d')!);

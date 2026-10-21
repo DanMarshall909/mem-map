@@ -61,6 +61,7 @@ export class Dashboard {
   private pathSummary = el('summary', '', 'Executable paths');
   private copy: HTMLButtonElement;
   private show: HTMLButtonElement;
+  private exclude: HTMLButtonElement;
   private values: HTMLElement[] = [];
   private changeLabel = el('dt', '', 'Change over 5m');
   private peakLabel = el('dt', '', 'Peak (last 30m)');
@@ -99,7 +100,9 @@ export class Dashboard {
     const workspace = el('div', 'workspace'); const left = this.processPanel; left.setAttribute('aria-label', 'Process table');
     const toolbar = el('div', 'toolbar panel');
     this.group = radios('Group by', [['name', 'Name'], ['path', 'Path'], ['tree', 'Process tree'], ['process', 'Individual processes'], ['family', 'Family']], value => send({ type: 'set_grouping', value }), { name: 'tag', path: 'folder', tree: 'tree', process: 'process', family: 'family' });
+    this.group.group.querySelector('legend')!.classList.add('sr-only');
     this.group.group.title = 'Family preserves the original launched-family grouping; Process tree shows actual ancestry';
+    this.group.group.querySelector('input[value="family"]')!.parentElement!.title = 'Family: an app and its descendants, stopping before launchers such as Explorer or PowerShell';
     const filterLabel = el('div', 'filter-field'); this.filter.type = 'search'; this.filter.placeholder = 'Name, path or PID'; this.filter.id = 'process-filter';
     const filterCaption = el('label', '', 'Filter:'); filterCaption.htmlFor = this.filter.id; this.clear = iconButton('Clear filter', 'close', () => this.clearFilter(), 'quiet');
     this.filter.addEventListener('input', () => {
@@ -129,7 +132,13 @@ export class Dashboard {
     this.inspector.setAttribute('aria-label', 'Selected process inspector'); this.inspector.tabIndex = -1;
     const inspectorHeading = el('div', 'inspector-heading'); this.title.id = 'selected-title';
     this.inspector.setAttribute('aria-labelledby', this.title.id);
-    this.show = iconButton('Show processes', 'list', () => send({ type: 'show_selected_processes' })); inspectorHeading.append(this.title, this.counts, this.show);
+    this.show = iconButton('Show processes', 'list', () => send({ type: 'show_selected_processes' }));
+    this.exclude = iconButton('Exclude program', 'filter', () => {
+      const target = this.exclusionTarget(); if (target) send({ type: 'add_exclusion', kind: target.kind, value: target.value });
+    }, 'accent');
+    this.exclude.disabled = true;
+    const inspectorActions = el('div', 'inspector-actions'); inspectorActions.append(this.exclude, this.show);
+    inspectorHeading.append(this.title, this.counts, inspectorActions);
     const pathRow = el('div', 'path-row'); const pathLabel = el('div', 'path-label'); pathLabel.append(el('span', '', 'Executable path:'));
     this.path.tabIndex = 0; this.path.setAttribute('role', 'group'); this.path.setAttribute('aria-label', 'Full executable path');
     this.path.append(this.pathPrefix, this.pathFilename); pathLabel.append(this.path);
@@ -166,6 +175,12 @@ export class Dashboard {
     window.addEventListener('resize', () => this.updateLayout()); this.updateLayout();
   }
   private clearFilter(): void { if (this.debounce) clearTimeout(this.debounce); this.editingFilter = false; this.filter.value = ''; this.send({ type: 'set_filter', value: '' }); this.filter.focus(); }
+  private exclusionTarget(): { kind: string; value: string; label: string } | null {
+    const selected = this.view?.selected; if (!selected) return null;
+    if (this.view!.settings.grouping === 'path' && selected.paths.length === 1) return { kind: 'path', value: selected.paths[0], label: 'Exclude executable path' };
+    if (this.view!.settings.grouping === 'tree') return { kind: 'tree', value: selected.name, label: 'Exclude process tree' };
+    return { kind: 'process', value: selected.name, label: 'Exclude program' };
+  }
   showNotice(value: string): void { this.lastNotice = value; text(this.notice, value); }
   update(view: View, explicitReveal = false): void {
     this.exclusions.update(view.settings);
@@ -199,6 +214,11 @@ export class Dashboard {
     text(this.hiddenSelection, view.table.selection_hidden ? 'Selected entity is hidden by the current filter or grouping.' : ''); this.hiddenSelection.hidden = !view.table.selection_hidden;
     text(this.counts, selected ? `${selected.count} ${selected.count === 1 ? 'process' : 'processes'} · ${selected.path_count} executable ${selected.path_count === 1 ? 'path' : 'paths'}${selected.pid === null ? '' : ` · PID ${selected.pid}`}${selected.lifecycle === 'exited' ? ` · Exited${selected.exited_at === null ? '' : ` at ${elapsed(selected.exited_at)} elapsed`}` : selected.lifecycle === 'unavailable' ? ' · Unavailable' : ''}` : '');
     this.show.hidden = !selected || selected.pid !== null;
+    const target = this.exclusionTarget();
+    const alreadyExcluded = !!target && (view.settings.exclusions?.rules ?? []).some(rule => rule.kind === target.kind && rule.value === target.value.trim().replaceAll('/', '\\').toLowerCase());
+    setIcon(this.exclude, target?.label ?? 'Exclude program', 'filter');
+    this.exclude.disabled = !target || !target.value.trim() || alreadyExcluded;
+    this.exclude.title = target ? `${alreadyExcluded ? 'Already excluded' : target.label}: ${target.value}. Uses a case-insensitive contains rule${target.kind === 'tree' ? ' for root names and their descendants' : ''}; manage or remove it in Global exclusions.` : 'Select a process to exclude';
     const fullPaths = selected?.paths ?? [];
     const pathValue = fullPaths.length === 1 ? fullPaths[0] : selected ? `${selected.path_count} executable paths${selected.paths_complete ? '' : ' · coverage incomplete'}` : '';
     this.path.title = fullPaths.join('\n'); this.path.setAttribute('aria-description', fullPaths.join('; '));

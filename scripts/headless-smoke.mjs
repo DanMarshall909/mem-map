@@ -167,6 +167,18 @@ try {
   assert(await page.locator('.dashboard.overview-expanded').isVisible(), 'Modal Escape must preserve the expanded chart behind it');
   await page.getByRole('button', { name: 'Back to processes', exact: true }).click();
   check('Global exclusions partition bands, hide process rows and restore collection through native controls');
+  const detailsExclude = inspector.getByRole('button', { name: 'Exclude program', exact: true });
+  await detailsExclude.click();
+  await until(async () => (await view()).settings.exclusions.rules.some(rule => rule.kind === 'process' && rule.value === 'headless-test-host.exe'), 'details exclusion applied globally');
+  assert((await view()).table.rows.every(row => row.name.toLowerCase() !== 'headless-test-host.exe'));
+  assert((await view()).table.selection_hidden, 'Excluded selected identity remains available for inspection');
+  await until(async () => detailsExclude.isDisabled(), 'details exclusion cannot be duplicated');
+  await page.screenshot({ path: path.join(output, 'inspector-exclude.png') });
+  await page.getByRole('button', { name: 'Global exclusions', exact: true }).click();
+  await exclusionDialog.getByRole('button', { name: 'Clear all exclusions', exact: true }).click();
+  await until(async () => !(await view()).settings.exclusions.rules.length, 'details exclusion restored');
+  await exclusionDialog.getByRole('button', { name: 'Close exclusions', exact: true }).click();
+  check('Details exclusion immediately filters the selected program globally and remains reversible');
   await page.getByRole('button', { name: 'Pause display', exact: true }).click();
   await until(async () => (await view()).paused, 'pause');
   const paused = await view();

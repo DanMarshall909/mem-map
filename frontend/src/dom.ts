@@ -6,6 +6,8 @@ export function button(label: string, action: () => void, className = ''): HTMLB
   const node = el('button', className, label); node.type = 'button'; node.addEventListener('click', action); return node;
 }
 const icons = {
+  filter: 'M3 4h18l-7 8v7l-4 2v-9Z',
+  add: 'M12 4v16M4 12h16',
   ram: 'M3 6h18v12H3ZM7 9v6m5-6v6m5-6v6M7 18v3m5-3v3m5-3v3',
   commit: 'M6 3h9l4 4v14H6ZM14 3v5h5M9 12h7m-7 4h7',
   zero: 'M4 3v17h17M8 15l4-6 4 3 5-7M1 20h6',

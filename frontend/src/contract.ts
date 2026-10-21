@@ -16,6 +16,7 @@ export interface Selected {
   recorded: number; private: Reading; commit: Reading; peak: Reading; change: ChangeReading;
 }
 export interface Settings {
+  exclusions: { rules: { kind: string; value: string }[]; other_ram: boolean; other_processes: boolean; show_excluded: boolean };
   grouping: Grouping; filter: string; show_exited: boolean; compact: boolean; change_seconds: number;
   sort: { column: SortColumn; descending: boolean }; overview_range: number | null; history_range: number | null;
   overview_metric: Metric; overview_from_zero: boolean; metric: Metric; from_zero: boolean; ui_zoom: number; column_widths: number[]; splitter_permille: number;
@@ -47,6 +48,9 @@ export interface View {
   diagnostics: Diagnostics; notice: string; reveal_row_id: string | null;
 }
 export type Action =
+  | { type: 'add_exclusion' | 'remove_exclusion'; kind: string; value: string }
+  | { type: 'clear_exclusions' }
+  | { type: 'set_exclude_other_ram' | 'set_exclude_other_processes' | 'set_show_excluded'; value: boolean }
   | { type: 'set_grouping'; value: Grouping }
   | { type: 'set_filter'; value: string }
   | { type: 'set_show_exited' | 'set_compact' | 'set_table_interaction_held' | 'set_paused' | 'set_overview_from_zero' | 'set_from_zero' | 'set_follow'; value: boolean }

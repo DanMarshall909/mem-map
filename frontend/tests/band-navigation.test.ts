@@ -88,6 +88,28 @@ test('responsive bands fold exact hidden allocations and baselines into Other wh
   window.happyDOM.abort();
 });
 
+test('excluding Other processes keeps short legends bounded without putting visible programs into Excluded', () => {
+  const { window, chart, view, resize } = setup();
+  view.overview.layers.splice(1, 1); view.overview.layers.push({name:'Excluded', id:null});
+  for (const sample of view.overview.samples) {
+    const removed = sample.layers!.splice(1, 1)[0]; sample.layers!.push(removed);
+    if (sample.baseline) { const before = sample.baseline.layers.splice(1, 1)[0]; sample.baseline.layers.push(before); }
+  }
+  chart.update(view); chart.setExpanded(true); resize(300, 200);
+  const labels = [...chart.element.querySelectorAll('.band-label')];
+  assert(labels.length <= 5, 'All legend rows must remain reachable in a short chart');
+  const excluded = labels.find(label => label.querySelector('.legend-name')?.textContent === 'Excluded')!;
+  assert.match(excluded.querySelector('title')!.textContent!, /17 raw bytes/);
+  const more = labels.find(label => label.querySelector('.legend-name')?.textContent === 'More programs');
+  assert(more, 'Responsive overflow remains a distinct visible allocation');
+  assert.match(more.querySelector('title')!.textContent!, /baseline bytes/);
+  resize(300, 100);
+  const drawing = chart.element.querySelector('svg')!;
+  const height = Number(drawing.getAttribute('viewBox')!.split(' ')[3]);
+  assert([...drawing.querySelectorAll('.band-label rect')].every(rect => Number(rect.getAttribute('y')) + Number(rect.getAttribute('height')) <= height), 'Every legend rectangle fits even at minimum chart height');
+  window.happyDOM.abort();
+});
+
 test('band navigation leaves expanded overview and processes explicit row reveal responses', () => {
   const { window, view } = setup(); const actions: unknown[] = [];
   const dashboard = new Dashboard(a => actions.push(a), () => {}); document.body.append(dashboard.element); dashboard.update(view);

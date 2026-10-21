@@ -3,6 +3,7 @@ import { checkbox, el, iconButton, radios, setIcon, text } from './dom.ts';
 import { bytes, changePercent, dateTime, duration, elapsed, partial, reading, readingHelp } from './format.ts';
 import { ProcessTreeGrid } from './treegrid.ts';
 import { MemoryChart } from './charts.ts';
+import { ExclusionControls } from './exclusions.ts';
 
 const metricChoices: [Metric, string][] = [['private_working_set', 'Private working set'], ['private_commit', 'Private commit']];
 const rangeChoices: [string, string][] = [['300', '5m'], ['900', '15m'], ['1800', '30m'], ['all', 'All']];
@@ -15,6 +16,7 @@ function explainedCollectionReason(reason: string): boolean {
   return entry[4] === '31' && /^(System|Secure System|Registry|Memory Compression)$/i.test(entry[1]);
 }
 export class Dashboard {
+  private exclusions: ExclusionControls;
   readonly element = el('main', 'dashboard');
   readonly table: ProcessTreeGrid;
   readonly inspector = el('section', 'panel inspector-scroll');
@@ -79,6 +81,7 @@ export class Dashboard {
   private lastNotice = '';
   constructor(send: (action: DashboardAction) => void, native: (action: 'copy' | 'snapshot') => void) {
     this.send = send; this.table = new ProcessTreeGrid(send);
+    this.exclusions = new ExclusionControls(send);
     this.overview = new MemoryChart('overview', action => { if (action.type === 'open_overview_process') this.setOverviewExpanded(false); send(action); }); this.history = new MemoryChart('history', send, sample => this.updateInspection(sample));
     const summary = el('div', 'header-summary');
     this.progress.max = 100; this.progress.setAttribute('aria-label', 'System physical memory used');
@@ -92,7 +95,7 @@ export class Dashboard {
     this.zoomValue.setAttribute('aria-label', 'View scale');
     const zoomControls = el('div', 'header-zoom'); zoomControls.setAttribute('role', 'group'); zoomControls.setAttribute('aria-label', 'View scale controls');
     zoomControls.append(this.zoomOut, this.zoomValue, this.zoomIn);
-    const actions = el('div', 'header-actions'); actions.append(zoomControls, this.pause, details, snapshotCopy); this.header.append(summary, actions);
+    const actions = el('div', 'header-actions'); actions.append(zoomControls, this.exclusions.open, this.pause, details, snapshotCopy); this.header.append(summary, actions);
     const workspace = el('div', 'workspace'); const left = this.processPanel; left.setAttribute('aria-label', 'Process table');
     const toolbar = el('div', 'toolbar panel');
     this.group = radios('Group by', [['name', 'Name'], ['path', 'Path'], ['tree', 'Process tree'], ['process', 'Individual processes'], ['family', 'Family']], value => send({ type: 'set_grouping', value }), { name: 'tag', path: 'folder', tree: 'tree', process: 'process', family: 'family' });
@@ -158,13 +161,14 @@ export class Dashboard {
     this.diagnostics.append(diagnosticHeader, diagnosticBody);
     this.diagnostics.addEventListener('close', () => { this.diagnosticOpen = false; });
     this.diagnostics.addEventListener('cancel', event => { event.preventDefault(); this.closeDiagnostics(); });
-    this.element.append(this.header, workspace, this.footer, this.diagnostics);
+    this.element.append(this.header, workspace, this.footer, this.diagnostics, this.exclusions.dialog);
     this.element.dataset.ready = 'false'; this.installShortcuts(); this.installSplitter();
     window.addEventListener('resize', () => this.updateLayout()); this.updateLayout();
   }
   private clearFilter(): void { if (this.debounce) clearTimeout(this.debounce); this.editingFilter = false; this.filter.value = ''; this.send({ type: 'set_filter', value: '' }); this.filter.focus(); }
   showNotice(value: string): void { this.lastNotice = value; text(this.notice, value); }
   update(view: View, explicitReveal = false): void {
+    this.exclusions.update(view.settings);
     this.view = view; this.element.dataset.ready = 'true'; this.element.dataset.displayAt = String(view.displayed_at); this.element.dataset.revision = String(view.revision);
     document.documentElement.style.fontSize = `${14 * view.settings.ui_zoom / 100}px`;
     this.updateLayout();
@@ -275,6 +279,7 @@ export class Dashboard {
   }
   private installShortcuts(): void {
     document.addEventListener('keydown', e => {
+      if (this.exclusions.dialog.open) return;
       const target = e.target; const editing = target instanceof HTMLElement && target.matches('input,textarea,select,[contenteditable="true"]');
       if (e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); this.setOverviewExpanded(false); this.filter.focus(); this.filter.select(); return; }
       if (e.key === 'Escape' && this.overviewExpanded && !editing && !this.diagnosticOpen) { e.preventDefault(); this.setOverviewExpanded(false); return; }

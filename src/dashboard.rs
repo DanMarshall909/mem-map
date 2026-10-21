@@ -187,7 +187,7 @@ fn query_matches(track: &crate::model::Track, query: &str) -> bool {
             .is_some_and(|name| name.to_lowercase().contains(query))
 }
 
-fn all_tracks(history: &History) -> Vec<std::borrow::Cow<'_, crate::model::Track>> {
+pub(crate) fn all_tracks(history: &History) -> Vec<std::borrow::Cow<'_, crate::model::Track>> {
     use std::borrow::Cow;
     let mut tracks: Vec<_> = history.tracks.values().map(Cow::Borrowed).collect();
     for observed in &history.latest.observed {
@@ -1083,11 +1083,21 @@ pub fn export_snapshot(
     grouping: Grouping,
     show_exited: bool,
     query: &str,
+    out: impl Write,
+) -> io::Result<()> {
+    export_snapshot_excluding(history, grouping, show_exited, query, &Default::default(), out)
+}
+pub fn export_snapshot_excluding(
+    history: &History,
+    grouping: Grouping,
+    show_exited: bool,
+    query: &str,
+    exclusions: &crate::exclusions::Exclusions,
     mut out: impl Write,
 ) -> io::Result<()> {
     out.write_all(b"elapsed_seconds,pid,creation_filetime,name,image,private_ram_kib,private_commit_kib,private_working_set_bytes,private_commit_bytes,snapshot_unix_ms,state,measurement_reason,provisional_generation,history_omitted\r\n")?;
     let keys: std::collections::BTreeSet<_> =
-        tree_rows(history, grouping, show_exited, query, 300, Sort::default())
+        exclusions.rows(history, tree_rows(history, grouping, show_exited, query, 300, Sort::default()))
             .into_iter()
             .filter_map(|r| {
                 if let Selection::Process(key) = r.selection {

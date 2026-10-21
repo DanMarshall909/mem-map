@@ -126,6 +126,14 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .diagnostics::backdrop { background: #0009; }
 .diagnostic-content { min-height: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-block: 1rem; }
 .diagnostic-content > .check { margin-bottom: .6rem; white-space: normal; }
+.exclusion-dialog { width: min(90vw, 42rem); }
+.exclusion-dialog .check { display: flex; width: fit-content; }
+.exclusion-form { display: flex; flex-wrap: wrap; align-items: end; gap: .5rem; margin-block: .8rem; }
+.exclusion-form fieldset { flex-basis: 100%; }
+.exclusion-form input[type=search] { flex: 1; min-width: 5rem; }
+.exclusion-rule { display: flex; align-items: center; gap: .5rem; }
+.exclusion-rule > span { flex: 1; overflow-wrap: anywhere; }
+.filter-active { box-shadow: inset 0 -2px var(--orange); }
 @media (max-width: 1000px) { .workspace { grid-template-columns: minmax(0, 1.5fr) .6rem minmax(20rem, 1fr); } .header-summary { flex-basis: 22rem; } }
 .dashboard.reflow { height: auto; min-height: 100dvh; grid-template-rows: auto auto auto; overflow-x: clip; }
 .reflow .workspace { display: flex; flex-direction: column; gap: .7rem; }

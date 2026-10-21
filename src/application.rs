@@ -177,6 +177,7 @@ pub struct SortSetting {
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct Settings {
+    pub exclusions: crate::exclusions::Exclusions,
     pub grouping: String,
     pub filter: String,
     pub show_exited: bool,
@@ -260,6 +261,12 @@ pub struct View {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
+    AddExclusion { kind: String, value: String },
+    RemoveExclusion { kind: String, value: String },
+    ClearExclusions,
+    SetExcludeOtherRam { value: bool },
+    SetExcludeOtherProcesses { value: bool },
+    SetShowExcluded { value: bool },
     SetGrouping { value: String },
     SetFilter { value: String },
     SetShowExited { value: bool },
@@ -288,6 +295,7 @@ pub enum Action {
 }
 
 pub struct Application {
+    exclusions: crate::exclusions::Exclusions,
     history: History,
     frozen: Option<History>,
     prefs: Preferences,
@@ -348,6 +356,7 @@ impl Application {
             Metric::PrivateWorkingSet
         };
         let mut app = Self {
+            exclusions: Default::default(),
             history: History::default(),
             frozen: None,
             prefs,
@@ -404,6 +413,8 @@ impl Application {
         self.reveal_row_id = None;
         if self.frozen.is_none() {
             self.refresh_rows(false);
+        } else {
+            self.exclusions.refresh(&self.history, self.frozen.as_ref());
         }
         self.revision += 1;
         self.project();
@@ -438,11 +449,12 @@ impl Application {
     }
     pub fn export_csv(&self) -> Result<Vec<u8>, String> {
         let mut bytes = Vec::new();
-        dashboard::export_snapshot(
+        dashboard::export_snapshot_excluding(
             self.shown(),
             self.grouping,
             self.show_exited,
             &self.query,
+            &self.exclusions,
             &mut bytes,
         )
         .map_err(|e| e.to_string())?;
@@ -488,6 +500,7 @@ impl Application {
             .ok_or_else(|| "Unknown row identity".into())
     }
     fn refresh_rows(&mut self, explicit: bool) {
+        self.exclusions.refresh(&self.history, self.frozen.as_ref());
         let previous_ids = std::mem::take(&mut self.ids);
         for (selection, id) in previous_ids {
             let canonical = self.shown().resolve_selection(&selection);
@@ -519,13 +532,16 @@ impl Application {
             .enumerate()
             .map(|(index, row)| (self.shown().resolve_selection(&row.selection), index))
             .collect();
-        let mut next = dashboard::tree_rows(
+        let mut next = self.exclusions.rows(
             self.shown(),
-            self.grouping,
-            self.show_exited,
-            &self.query,
-            self.change_seconds,
-            self.sort,
+            dashboard::tree_rows(
+                self.shown(),
+                self.grouping,
+                self.show_exited,
+                &self.query,
+                self.change_seconds,
+                self.sort,
+            ),
         );
         self.order_held = self.table_held && !explicit;
         if self.order_held && !previous_order.is_empty() {
@@ -650,6 +666,11 @@ impl Application {
                 Metric::PrivateWorkingSet
             },
         );
+        let overview = self.exclusions.overview(
+            shown,
+            overview,
+            self.prefs.overview_metric == "private_commit",
+        );
         let selected = self
             .selected
             .as_ref()
@@ -723,6 +744,7 @@ impl Application {
             collection: self.collection(),
             system_memory,
             settings: Settings {
+                exclusions: self.exclusions.clone(),
                 grouping: grouping_name(self.grouping).into(),
                 filter: self.query.clone(),
                 show_exited: self.show_exited,
@@ -904,6 +926,14 @@ impl Application {
             _ => None,
         };
         match &action {
+            Action::AddExclusion { kind, value } | Action::RemoveExclusion { kind, value } => {
+                crate::exclusions::Exclusions::validate(kind, value)?;
+                if matches!(&action, Action::AddExclusion { .. })
+                    && self.exclusions.rules.len() >= 32
+                {
+                    return Err("At most 32 exclusion rules are allowed".into());
+                }
+            }
             Action::SetGrouping { value } => {
                 parse_grouping(value)?;
             }
@@ -952,6 +982,21 @@ impl Application {
         );
         self.reveal_row_id = None;
         match action {
+            Action::AddExclusion { kind, value } => {
+                self.exclusions.add(kind, value);
+                explicit = true;
+            }
+            Action::RemoveExclusion { kind, value } => {
+                self.exclusions.remove(&kind, &value);
+                explicit = true;
+            }
+            Action::ClearExclusions => {
+                self.exclusions = Default::default();
+                explicit = true;
+            }
+            Action::SetExcludeOtherRam { value } => self.exclusions.other_ram = value,
+            Action::SetExcludeOtherProcesses { value } => self.exclusions.other_processes = value,
+            Action::SetShowExcluded { value } => self.exclusions.show_excluded = value,
             Action::SetGrouping { value } => {
                 self.grouping = parse_grouping(&value)?;
                 self.prefs.grouping = value;
@@ -1167,6 +1212,374 @@ fn valid_range(range: Option<u32>) -> bool {
 mod tests {
     use super::*;
     use crate::model::{ProcessKey, ProcessSample};
+    fn exclusion_action(app: &mut Application, value: serde_json::Value) -> Result<(), String> {
+        app.dispatch(serde_json::from_value(value).expect("Global exclusion action exists"))
+    }
+    #[test]
+    fn global_exclusions_partition_memory_restore_rows_and_preserve_collection() {
+        let mut app = Application::new(Preferences::default());
+        let mut child = process(2, "Child.exe", 200);
+        child.parent_pid = 1;
+        app.ingest(frame(
+            0,
+            vec![
+                process(1, "Root.exe", 100),
+                child.clone(),
+                process(3, "Keep.exe", 400),
+            ],
+        ));
+        let original = app.view().clone();
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"add_exclusion", "kind":"tree", "value":"ROOT"}),
+        )
+        .unwrap();
+        let view = app.view();
+        assert!(view.table.rows.iter().all(|r| r.name == "Keep.exe"));
+        assert_eq!(view.system_memory.used, original.system_memory.used);
+        assert_eq!(view.diagnostics.current_observed, 3);
+        let excluded = view
+            .overview
+            .layers
+            .iter()
+            .position(|l| l.name == "Excluded")
+            .unwrap();
+        assert_eq!(
+            view.overview.samples[0].layers.as_ref().unwrap()[excluded],
+            "300"
+        );
+        assert_eq!(
+            view.overview.samples[0].used,
+            original.overview.samples[0].used
+        );
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"set_show_excluded", "value":false}),
+        )
+        .unwrap();
+        assert_eq!(
+            app.view().overview.samples[0]
+                .used
+                .as_ref()
+                .unwrap()
+                .parse::<u64>()
+                .unwrap(),
+            (24_u64 << 30) - 300
+        );
+        app.dispatch(Action::SetOverviewMetric {
+            value: "private_commit".into(),
+        })
+        .unwrap();
+        assert_eq!(app.view().overview.samples[0].used.as_deref(), Some("800"));
+        exclusion_action(&mut app, serde_json::json!({"type":"clear_exclusions"})).unwrap();
+        assert_eq!(app.view().table.rows.len(), original.table.rows.len());
+        assert_eq!(app.view().overview.samples[0].used.as_deref(), Some("1400"));
+    }
+    #[test]
+    fn global_exclusions_compose_across_groupings_copy_pause_and_invalid_commands() {
+        let mut app = Application::new(Preferences::default());
+        let mut child = process(2, "Child.exe", 200);
+        child.parent_pid = 1;
+        app.ingest(frame(
+            0,
+            vec![
+                process(1, "Root.exe", 100),
+                child.clone(),
+                process(3, "Keep.exe", 400),
+            ],
+        ));
+        let root = app
+            .view()
+            .table
+            .rows
+            .iter()
+            .find(|r| r.name == "Root.exe")
+            .unwrap()
+            .id
+            .clone();
+        app.dispatch(Action::SelectRow { id: root }).unwrap();
+        let selected = app.view().table.selected_id.clone();
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"add_exclusion", "kind":"process", "value":"ROOT"}),
+        )
+        .unwrap();
+        for grouping in ["name", "path", "process", "tree", "family"] {
+            app.dispatch(Action::SetGrouping {
+                value: grouping.into(),
+            })
+            .unwrap();
+            let view = app.view();
+            assert!(
+                view.table
+                    .rows
+                    .iter()
+                    .all(|r| r.name != "Root.exe" || r.has_children)
+            );
+            assert!(
+                String::from_utf8(app.export_csv().unwrap())
+                    .unwrap()
+                    .contains("Child.exe")
+            );
+            assert!(
+                !String::from_utf8(app.export_csv().unwrap())
+                    .unwrap()
+                    .contains(",\"Root.exe\",")
+            );
+        }
+        app.dispatch(Action::SetGrouping {
+            value: "name".into(),
+        })
+        .unwrap();
+        assert_eq!(app.view().table.selected_id, selected);
+        assert!(app.view().table.selection_hidden);
+        let before = serde_json::to_value(app.view()).unwrap();
+        for (kind, value) in [("unknown", "x"), ("path", " ")] {
+            assert!(
+                exclusion_action(
+                    &mut app,
+                    serde_json::json!({"type":"add_exclusion", "kind":kind, "value":value})
+                )
+                .is_err()
+            );
+            assert_eq!(serde_json::to_value(app.view()).unwrap(), before);
+        }
+        exclusion_action(&mut app, serde_json::json!({"type":"add_exclusion", "kind":"path", "value":"c:/program files/CHILD"})).unwrap();
+        assert!(app.view().table.rows.iter().all(|r| r.name == "Keep.exe"));
+        exclusion_action(&mut app, serde_json::json!({"type":"remove_exclusion", "kind":"path", "value":"C:\\Program Files\\Child"})).unwrap();
+        assert!(app.view().table.rows.iter().any(|r| r.name == "Child.exe"));
+        app.dispatch(Action::SetPaused { value: true }).unwrap();
+        app.ingest(frame(2, vec![process(4, "New.exe", 900)]));
+        exclusion_action(&mut app, serde_json::json!({"type":"clear_exclusions"})).unwrap();
+        assert_eq!(app.view().displayed_at, 0);
+        assert_eq!(app.view().live_at, 2);
+        assert!(app.view().table.rows.iter().any(|r| r.name == "Root.exe"));
+    }
+    #[test]
+    fn global_exclusions_residuals_baselines_overlap_and_attribution_gaps() {
+        let mut app = Application::new(Preferences::default());
+        let processes: Vec<_> = (1..=14)
+            .map(|pid| process(pid, &format!("P{pid}.exe"), u64::from(pid) * 100))
+            .collect();
+        app.ingest(frame(0, processes.clone()));
+        app.ingest(frame(300, processes));
+        let original = app.view().clone();
+        for (kind, value) in [("process", "P14.exe"), ("path", "P14.exe")] {
+            exclusion_action(
+                &mut app,
+                serde_json::json!({"type":"add_exclusion", "kind":kind, "value":value}),
+            )
+            .unwrap();
+        }
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"set_exclude_other_processes", "value":true}),
+        )
+        .unwrap();
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"set_exclude_other_ram", "value":true}),
+        )
+        .unwrap();
+        let view = app.view();
+        assert!(
+            view.overview
+                .layers
+                .iter()
+                .all(|l| !["Other used RAM", "Other processes", "P14.exe"]
+                    .contains(&l.name.as_str()))
+        );
+        let excluded = view
+            .overview
+            .layers
+            .iter()
+            .position(|l| l.name == "Excluded")
+            .unwrap();
+        let sample = view.overview.samples.last().unwrap();
+        assert_eq!(
+            sample.layers.as_ref().unwrap()[excluded],
+            ((24_u64 << 30) - 10500 + 1400 + 300).to_string()
+        );
+        assert_eq!(
+            sample.layers.as_ref().unwrap(),
+            &sample.baseline.as_ref().unwrap().layers
+        );
+        assert_eq!(sample.used, original.overview.samples.last().unwrap().used);
+        app.history.tracks.remove(&process(8, "P8.exe", 800).key);
+        app.refresh_rows(true);
+        app.project();
+        let gap = &app.view().overview.samples[0];
+        assert!(
+            gap.layers.is_none()
+                && gap
+                    .reason
+                    .as_ref()
+                    .unwrap()
+                    .contains("Filtered attribution unavailable")
+        );
+        assert!(
+            app.view().overview.samples.last().unwrap().layers.is_some(),
+            "Current observations can reconstruct current detail, never lost history"
+        );
+    }
+    #[test]
+    fn global_exclusions_tree_survives_root_retention_and_new_descendants() {
+        let mut app = Application::new(Preferences::default());
+        let root = process(1, "Root.exe", 100);
+        let mut child = process(2, "Child.exe", 200);
+        child.parent_pid = 1;
+        app.ingest(frame(0, vec![root.clone(), child.clone()]));
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"add_exclusion", "kind":"tree", "value":"root"}),
+        )
+        .unwrap();
+        app.history.tracks.remove(&root.key);
+        let mut grandchild = process(3, "Grandchild.exe", 300);
+        grandchild.parent_pid = 2;
+        app.ingest(frame(
+            2,
+            vec![child, grandchild, process(4, "Keep.exe", 400)],
+        ));
+        assert!(app.view().table.rows.iter().all(|r| r.name == "Keep.exe"));
+    }
+    #[test]
+    fn global_exclusions_remember_live_descendants_during_pause_without_pid_reuse() {
+        let mut app = Application::new(Preferences::default());
+        let root = process(1, "Root.exe", 100);
+        let mut child = process(2, "Child.exe", 200);
+        child.parent_pid = 1;
+        let mut grandchild = process(3, "Grandchild.exe", 300);
+        grandchild.parent_pid = 2;
+        let keep = process(4, "Keep.exe", 500);
+        app.ingest(frame(0, vec![root.clone(), child.clone(), keep.clone()]));
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"add_exclusion", "kind":"tree", "value":"root"}),
+        )
+        .unwrap();
+        app.dispatch(Action::SetPaused { value: true }).unwrap();
+        app.ingest(frame(
+            2,
+            vec![child.clone(), grandchild.clone(), keep.clone()],
+        ));
+        assert_eq!(app.view().displayed_at, 0);
+        app.history.tracks.remove(&root.key);
+        app.history.tracks.remove(&child.key);
+        let mut replacement = process(1, "Replacement.exe", 400);
+        replacement.key.created += 10000;
+        app.ingest(frame(4, vec![grandchild, replacement, keep]));
+        app.dispatch(Action::SetPaused { value: false }).unwrap();
+        assert!(
+            app.view()
+                .table
+                .rows
+                .iter()
+                .all(|r| ["Replacement.exe", "Keep.exe"].contains(&r.name.as_str()))
+        );
+    }
+    #[test]
+    fn global_exclusions_drop_empty_searched_groups_and_exited_only_siblings() {
+        let mut app = Application::new(Preferences::default());
+        let mut a = process(1, "Same.exe", 100);
+        a.image = "C:\\A\\Same.exe".into();
+        let mut b = process(2, "Same.exe", 200);
+        b.image = "C:\\B\\Same.exe".into();
+        app.ingest(frame(0, vec![a.clone(), b]));
+        app.dispatch(Action::SetFilter {
+            value: "C:\\A\\".into(),
+        })
+        .unwrap();
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"add_exclusion", "kind":"path", "value":"C:\\A\\"}),
+        )
+        .unwrap();
+        assert!(app.view().table.rows.is_empty());
+        app.dispatch(Action::SetFilter {
+            value: String::new(),
+        })
+        .unwrap();
+        assert!(!app.view().table.rows.is_empty());
+        app.ingest(frame(2, vec![a]));
+        assert!(app.view().table.rows.is_empty());
+    }
+    #[test]
+    fn global_exclusions_keep_unmeasured_unknown_allocations_in_the_residual() {
+        let mut app = Application::new(Preferences::default());
+        let p = process(1, "Keep.exe", 100);
+        let mut snapshot = frame(0, vec![p.clone()]);
+        snapshot.observed = vec![
+            crate::model::ProcessObservation {
+                pid: 1,
+                key: Some(p.key),
+                name: p.name.clone(),
+                image: Some(p.image.clone()),
+                parent_pid: 0,
+                error: None,
+            },
+            crate::model::ProcessObservation {
+                pid: 9,
+                key: None,
+                name: "Unknown.exe".into(),
+                image: None,
+                parent_pid: 0,
+                error: Some("Denied".into()),
+            },
+        ];
+        snapshot.inaccessible = 1;
+        app.ingest(snapshot);
+        app.ingest(frame(2, vec![p]));
+        app.history.tracks.retain(|_, t| t.name != "Unknown.exe");
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"add_exclusion", "kind":"path", "value":"keep.exe"}),
+        )
+        .unwrap();
+        let sample = &app.view().overview.samples[0];
+        assert!(
+            sample.layers.is_some(),
+            "Unmeasured allocations stay in the residual; their identity is not fabricated"
+        );
+        assert_eq!(
+            sample.used.as_deref(),
+            Some((24_u64 << 30).to_string().as_str())
+        );
+        assert_eq!(app.view().diagnostics.current_unavailable, 0);
+    }
+    #[test]
+    fn global_exclusions_bound_rules_and_reject_add_remove_without_partial_mutation() {
+        let mut app = Application::new(Preferences::default());
+        app.ingest(frame(0, vec![process(1, "Keep.exe", 100)]));
+        let maximum = "x".repeat(2048);
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"add_exclusion", "kind":"process", "value":maximum}),
+        )
+        .unwrap();
+        for i in 1..32 {
+            exclusion_action(&mut app, serde_json::json!({"type":"add_exclusion", "kind":"process", "value":format!("not-matching-{i}")})).unwrap();
+        }
+        assert_eq!(app.view().settings.exclusions.rules.len(), 32);
+        let view = serde_json::to_value(app.view()).unwrap();
+        let prefs = app.preferences();
+        for action in [
+            serde_json::json!({"type":"add_exclusion", "kind":"process", "value":"thirty-third"}),
+            serde_json::json!({"type":"add_exclusion", "kind":"path", "value":"x".repeat(2049)}),
+            serde_json::json!({"type":"remove_exclusion", "kind":"path", "value":"x".repeat(2049)}),
+            serde_json::json!({"type":"remove_exclusion", "kind":"unsupported", "value":"keep"}),
+        ] {
+            assert!(exclusion_action(&mut app, action).is_err());
+            assert_eq!(serde_json::to_value(app.view()).unwrap(), view);
+            assert_eq!(app.preferences(), prefs);
+        }
+        exclusion_action(
+            &mut app,
+            serde_json::json!({"type":"remove_exclusion", "kind":"process", "value":maximum}),
+        )
+        .unwrap();
+        assert_eq!(app.view().settings.exclusions.rules.len(), 31);
+    }
     fn process(pid: u32, name: &str, private: u64) -> ProcessSample {
         ProcessSample {
             key: ProcessKey {

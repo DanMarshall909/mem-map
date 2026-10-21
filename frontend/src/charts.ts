@@ -14,12 +14,18 @@ function fitOverview(source: Overview, limit: number): Overview {
   const other = source.layers.findIndex(layer => layer.id === null && layer.name === 'Other processes');
   let named = 0;
   const keep = source.layers.map((layer, index) => ({ layer, index })).filter(({ layer }) => layer.id === null || named++ < limit);
-  if (other < 0 || keep.length === source.layers.length) return source;
+  if (keep.length === source.layers.length) return source;
   const indices = new Set(keep.map(entry => entry.index));
   const hidden = source.layers.map((_, index) => index).filter(index => !indices.has(index));
-  const fold = (values: string[]) => keep.map(({ index }) => index === other
-    ? hidden.reduce((sum, i) => sum + BigInt(values[i]), BigInt(values[other])).toString() : values[index]);
-  return { ...source, layers: keep.map(entry => entry.layer), samples: source.samples.map(sample => ({ ...sample,
+  const fold = (values: string[]) => {
+    const valuesKept = keep.map(({ index }) => index === other
+      ? hidden.reduce((sum, i) => sum + BigInt(values[i]), BigInt(values[other])).toString() : values[index]);
+    if (other < 0) valuesKept.push(hidden.reduce((sum, i) => sum + BigInt(values[i]), 0n).toString());
+    return valuesKept;
+  };
+  const layers = keep.map(entry => entry.layer);
+  if (other < 0) layers.push({ name: 'More programs', id: null });
+  return { ...source, layers, samples: source.samples.map(sample => ({ ...sample,
     layers: sample.layers === null ? null : fold(sample.layers),
     baseline: sample.baseline === null ? null : { ...sample.baseline, layers: fold(sample.baseline.layers) },
   })) };
@@ -294,8 +300,9 @@ export class MemoryChart {
         : Math.max((this.compact && !this.expanded ? 168 : 112) * scale, (panel?.clientHeight || 260 * scale) - overhead);
     }
     const left = (this.compact ? 12 : 52) * scale, right = width - (this.compact ? 12 : 18) * scale, top = 25 * scale, bottom = height - 34 * scale;
-    const residuals = view.overview.layers.filter(layer => layer.id === null).length;
-    const limit = Math.max(1, Math.min(12, Math.floor((bottom - top - 20 * scale) / (24 * scale)) - residuals, Math.floor((right - left) / (55 * scale))));
+    const residuals = view.overview.layers.filter(layer => layer.id === null).length
+      + Number(!view.overview.layers.some(layer => layer.name === 'Other processes' && layer.id === null) && view.overview.layers.some(layer => layer.id !== null));
+    const limit = Math.max(0, Math.min(12, Math.floor((bottom - top - 20 * scale) / (24 * scale)) - residuals, Math.floor((right - left) / (55 * scale))));
     this.view = view = this.kind === 'overview' ? { ...view, overview: fitOverview(view.overview, limit) } : view;
     if (selectedBand) this.band = Math.max(0, view.overview.layers.findIndex(layer => selectedBand.id ? layer.id === selectedBand.id : layer.name === selectedBand.name));
     this.plot = { width, left, right, top, bottom, minimum: 0, maximum: Number(view.overview.capacity) || 1 };

@@ -125,6 +125,7 @@ progress::-webkit-progress-bar { background: var(--input); } progress::-webkit-p
 .diagnostic-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 .diagnostics::backdrop { background: #0009; }
 .diagnostic-content { min-height: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; margin-block: 1rem; }
+.diagnostic-content > .check { margin-bottom: .6rem; white-space: normal; }
 @media (max-width: 1000px) { .workspace { grid-template-columns: minmax(0, 1.5fr) .6rem minmax(20rem, 1fr); } .header-summary { flex-basis: 22rem; } }
 .dashboard.reflow { height: auto; min-height: 100dvh; grid-template-rows: auto auto auto; overflow-x: clip; }
 .reflow .workspace { display: flex; flex-direction: column; gap: .7rem; }

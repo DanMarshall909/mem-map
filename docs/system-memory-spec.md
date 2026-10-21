@@ -715,6 +715,8 @@ Omit the routine executable-group/session/unavailable counts from the main foote
 Place the orange **Details** info icon beside **Pause display** in the header. Its panel should contain:
 
 - Collection failures and their recorded reasons.
+
+Hide explained Windows limitations from the displayed reasons by default: OpenProcess access denied (5), nonzero-PID OpenProcess invalid-parameter failures (87, a possible exit race), and executable-path error 31 for System, Secure System, Registry or Memory Compression. Match the operation and numeric error code, not localized error wording. This is display filtering, not proof of protection or exit. Keep unexpected codes, operations, malformed reasons and ordinary-program path failures visible. Show how many records were filtered and provide a **Show explained Windows limitations** toggle to reveal all original records. Preserve coverage/unavailable counts, raw history, process lifecycle and memory accounting unchanged.
 - Measurement coverage.
 - Last successful collection time.
 - Retained snapshot count.

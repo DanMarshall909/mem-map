@@ -490,6 +490,19 @@ try {
   await detailsButton.click();
   const dialog = page.getByRole('dialog', { name: 'Collection details', exact: true });
   await dialog.waitFor({ state: 'visible' });
+  const beforeFilter = await view();
+  const explained = dialog.getByRole('checkbox', {name:'Show explained Windows limitations',exact:true});
+  assert(!(await explained.isChecked()));
+  const deniedReason = beforeFilter.diagnostics.failures.find(reason => reason.includes('OpenProcess:') && reason.endsWith('(os error 5)'));
+  if (deniedReason) assert(!(await dialog.locator('.diagnostic-text').innerText()).includes(deniedReason));
+  await explained.check();
+  await until(async () => (await dialog.locator('.diagnostic-text').innerText()).includes('Windows limitations shown'), 'show explained reasons');
+  const allReasons = await dialog.locator('.diagnostic-text').innerText();
+  for (const reason of beforeFilter.diagnostics.failures) assert(allReasons.includes(reason));
+  await explained.press('Space');
+  await until(async () => !(await explained.isChecked()) && (await dialog.locator('.diagnostic-text').innerText()).includes('Windows limitations hidden'), 'hide explained reasons');
+  assert.deepEqual((await view()).settings, beforeFilter.settings);
+  check('Diagnostics filter explained Windows limitations while retaining raw reasons and controller settings');
   const closeDetails = page.getByRole('button', { name: 'Close details', exact: true });
   const dialogLayout = await closeDetails.evaluate(button => {
     const box = button.getBoundingClientRect(), content = document.querySelector('.diagnostic-content');

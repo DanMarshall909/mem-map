@@ -7,6 +7,13 @@ import { MemoryChart } from './charts.ts';
 const metricChoices: [Metric, string][] = [['private_working_set', 'Private working set'], ['private_commit', 'Private commit']];
 const rangeChoices: [string, string][] = [['300', '5m'], ['900', '15m'], ['1800', '30m'], ['all', 'All']];
 export type DashboardAction = Action | { type: 'adjust_ui_zoom'; delta: number };
+function explainedCollectionReason(reason: string): boolean {
+  const entry = /^\d+s: (.+) \(PID ([1-9]\d*)\): (OpenProcess|Executable path): .+ \(os error (5|31|87)\)$/.exec(reason);
+  if (!entry) return false;
+  // These are display categories, not proof of protection or process exit.
+  if (entry[3] === 'OpenProcess') return entry[4] === '5' || entry[4] === '87';
+  return entry[4] === '31' && /^(System|Secure System|Registry|Memory Compression)$/i.test(entry[1]);
+}
 export class Dashboard {
   readonly element = el('main', 'dashboard');
   readonly table: ProcessTreeGrid;
@@ -63,7 +70,8 @@ export class Dashboard {
   private zoomIn: HTMLButtonElement;
   private zoomValue = el('output', 'zoom-value', '100%');
   private diagnostics = el('dialog', 'diagnostics');
-  private diagnosticText = el('div', 'diagnostic-content');
+  private diagnosticText = el('div', 'diagnostic-text');
+  private showExplained: ReturnType<typeof checkbox>;
   private diagnosticOpen = false;
   private debounce: ReturnType<typeof setTimeout> | undefined;
   private editingFilter = false;
@@ -144,7 +152,10 @@ export class Dashboard {
     const diagnosticHeading = el('h2', '', 'Collection details'); diagnosticHeading.id = 'diagnostic-title'; this.diagnostics.setAttribute('aria-labelledby', diagnosticHeading.id);
     const diagnosticHeader = el('div', 'diagnostic-heading');
     diagnosticHeader.append(diagnosticHeading, iconButton('Close details', 'close', () => this.closeDiagnostics()));
-    this.diagnostics.append(diagnosticHeader, this.diagnosticText);
+    this.showExplained = checkbox('Show explained Windows limitations', () => this.renderDiagnostics(), 'info');
+    this.showExplained.label.append(document.createTextNode('Show explained Windows limitations'));
+    const diagnosticBody = el('div', 'diagnostic-content'); diagnosticBody.append(this.showExplained.label, this.diagnosticText);
+    this.diagnostics.append(diagnosticHeader, diagnosticBody);
     this.diagnostics.addEventListener('close', () => { this.diagnosticOpen = false; });
     this.diagnostics.addEventListener('cancel', event => { event.preventDefault(); this.closeDiagnostics(); });
     this.element.append(this.header, workspace, this.footer, this.diagnostics);
@@ -241,7 +252,12 @@ export class Dashboard {
   private closeDiagnostics(): void { this.diagnosticOpen = false; this.diagnostics.close(); }
   private renderDiagnostics(): void {
     const d = this.view?.diagnostics; if (!d) return;
-    const lines = [`Coverage: ${d.current_measured} of ${d.current_observed} current processes measured${d.current_enumeration_complete ? '' : ' · enumeration incomplete'}`, `${d.current_unavailable} current unavailable readings`, `Last successful collection: ${d.last_success === null ? 'None' : `${elapsed(d.last_success)} elapsed`}`, `Retained snapshots: ${d.retained_snapshots}`, `Omitted detailed tracks: ${d.omitted_tracks}`, `Mem Map private memory: ${bytes(d.own_private)} · working set: ${bytes(d.own_working_set)}`, 'Recorded collection reasons:', ...(d.failures.length ? d.failures : ['No recorded collection failures'])];
+    const reasons: string[] = []; let explained = 0;
+    for (const reason of d.failures) {
+      const expected = explainedCollectionReason(reason); if (expected) explained++;
+      if (!expected || this.showExplained.input.checked) reasons.push(reason);
+    }
+    const lines = [`Coverage: ${d.current_measured} of ${d.current_observed} current processes measured${d.current_enumeration_complete ? '' : ' · enumeration incomplete'}`, `${d.current_unavailable} current unavailable readings`, `Last successful collection: ${d.last_success === null ? 'None' : `${elapsed(d.last_success)} elapsed`}`, `Retained snapshots: ${d.retained_snapshots}`, `Omitted detailed tracks: ${d.omitted_tracks}`, `Mem Map private memory: ${bytes(d.own_private)} · working set: ${bytes(d.own_working_set)}`, `${explained} explained Windows limitations ${this.showExplained.input.checked ? 'shown' : 'hidden'}`, 'Recorded collection reasons:', ...(reasons.length ? reasons : [d.failures.length ? 'No unexpected collection failures' : 'No recorded collection failures'])];
     text(this.diagnosticText, lines.join('\n'));
   }
   private installSplitter(): void {
